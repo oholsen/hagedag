@@ -142,9 +142,8 @@
         straight();
     });
 
-
     try {
-
+      // TODO: reconnect???
       const host = "ws://" + window.location.hostname + ":8000/control";
       console.log("Host:", host);
       
@@ -153,7 +152,7 @@
       var timer;
       s.onopen = function (e) {
         console.log("Socket opened.");
-        timer = setInterval(() => s.send("heartbeat\n"), 1000);
+        timer = setInterval(() => $("#heartbeat").prop("checked") && s.send("heartbeat\n"), 3000);
       };
       
       s.onclose = function (e) {
@@ -255,6 +254,7 @@
   </form>
   <form id="params">
     <input type="text" id="cutspeed" value="14">
+    <input type="checkbox" id="heartbeat"> Hearbeat
   </form>
 
 <table>
