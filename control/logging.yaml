@@ -1,0 +1,26 @@
+version: 1
+disable_existing_loggers: False
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: default
+    stream: ext://sys.stdout
+  file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: default
+    filename: video.log
+    # maxBytes: 1024
+    when: midnight
+    backupCount: 10
+formatters:
+  default:
+    format: '%(asctime)s.%(msecs)03d %(levelname)-8s %(name)-6s %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+root:
+  level: INFO
+  handlers: [console, file]
+loggers:
+  websocket.client:
+    level: INFO
+  websocket:
+    level: INFO
