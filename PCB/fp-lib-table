@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name STM-nano)(type KiCad)(uri ${KIPRJMOD}/STM-nano.pretty)(options "")(descr ""))
+)

@@ -1,0 +1,5 @@
+(sym_lib_table
+  (lib (name GB2-rescue)(type Legacy)(uri ${KIPRJMOD}/GB2-rescue.lib)(options "")(descr ""))
+  (lib (name RPi_Zero_pHat_Template-cache)(type Legacy)(uri ${KIPRJMOD}/RPi_Zero_pHat_Template-master/RPi_Zero_pHat_Template-cache.lib)(options "")(descr ""))
+  (lib (name stmnano)(type Legacy)(uri ${KIPRJMOD}/STM-nano.pretty/stmnano.lib)(options "")(descr ""))
+)
