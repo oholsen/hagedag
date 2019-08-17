@@ -5,8 +5,9 @@ import numpy as np
 import logging
 import logging.config
 import yaml
-#import util
 
+logger = logging.getLogger()
+# TODO: make config file
 sensitivity = 50
 fence_distance = 20
 speed = 6
@@ -15,15 +16,14 @@ A_min = 100
 A_max = 1000
 
 
-def centroid(M):
-    cX = int(M["m10"] / M["m00"])
-    cY = int(M["m01"] / M["m00"])
-    return cX, cY
+def area_and_centroid(M):
+    A = M["m00"]
+    cX = int(M["m10"] / A)
+    cY = int(M["m01"] / A)
+    return A, cX, cY
 
 def area(M):
     return M["m00"]
-
-logger = logging.getLogger()
 
 
 kernel = np.ones((9,9),np.uint8)
@@ -82,6 +82,13 @@ def main():
             cv2.imshow('course', course)
 
         blur = cv2.GaussianBlur(frame, (21, 21), 0)
+        if 0:
+            # downsample
+            width = int(blur.shape[1] / 2)
+            height = int(blur.shape[0] / 2)
+            dim = (width, height)
+            blur = cv2.resize(blur, dim, interpolation = cv2.INTER_AREA)
+ 
         # cv2.imshow('blur', blur)
         hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)    
         # Threshold the HSV image to get only white colors
@@ -102,13 +109,18 @@ def main():
         M = cv2.moments(c)
 
         try:
-            cX, cY = centroid(M)
+            A, cX, cY = area_and_centroid(M)
         except:
             logger.info("No point")
             continue
 
+        if 0:
+            # correct for downsampling
+            cX *= 2
+            cY *= 2
+            A *= 4
+
         p = Point(cX, cY)
-        A = area(M)
 
         if not (A_min <= A <= A_max):
             logger.info("Invalid area %d %d %r %.2f %.2f", cX, cY, fence.contains(p), fence.exterior.distance(p), A)
