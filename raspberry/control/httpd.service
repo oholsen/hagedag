@@ -1,0 +1,10 @@
+[Unit]
+Description=HTTP to serial bridge
+After=multi-user.target
+
+[Service]
+Type=idle
+ExecStart=/usr/bin/python /home/pi/gardenbot/control/httpd.py
+
+[Install]
+WantedBy=multi-user.target
