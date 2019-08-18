@@ -14,7 +14,7 @@ speed = 6
 turn = 10
 A_min = 100
 A_max = 1000
-
+aoi_buffer = 50.0
 
 def area_and_centroid(M):
     A = M["m00"]
@@ -34,6 +34,26 @@ upper_white = np.array([255,sensitivity,255])
 
 from shapely.geometry import Point, box
 fence = box(580, 350, 1200, 600)
+aoi = fence.buffer(aoi_buffer, resolution=1, join_style=2)
+print(fence.area)
+print(aoi.area)
+
+
+def draw_exterior(shape, image, color, width):
+    pts = shape.exterior.coords[:]
+    p0 = tuple(map(int, pts.pop(0)))
+    while pts:
+        p1 = tuple(map(int, pts.pop(0)))
+        cv2.line(image, p0, p1, color, width)
+        p0 = p1
+
+#def draw_polyline(points, image, color, width):
+def draw_polyline(image):
+    pts = np.array([[10,5],[20,30],[70,20],[50,10]], np.int32)
+    pts = pts.reshape((-1,1,2))
+    cv2.polylines(image, [pts], True, (0,255,255), 5, 0)
+
+
 
 
 def main():
@@ -67,14 +87,9 @@ def main():
             continue
         last_time = t
 
-
-        pts = fence.exterior.coords[:]
-        p0 = tuple(map(int, pts.pop(0)))
-        while pts:
-            p1 = tuple(map(int, pts.pop(0)))
-            cv2.line(frame, p0, p1, (0, 255, 0), 2)
-            p0 = p1
-
+        draw_exterior(fence, frame, (0, 0, 255), 2)
+        draw_exterior(aoi, frame, (0, 0, 0), 2)
+        #draw_polyline(frame)
         cv2.imshow('frame', frame)
 
         if course is None:
@@ -97,6 +112,7 @@ def main():
         #res = cv2.bitwise_and(frame, frame, mask=mask)
         #cv2.imshow('res',res)
 
+        #contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
         contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         if len(contours) == 0:
             logger.info("No contours")
@@ -105,26 +121,32 @@ def main():
         #cv2.drawContours(mask, contours, -1, 255, 3)
         #cv2.imshow("mask", mask)
         # find the contour with the biggest area
-        c = max(contours, key = cv2.contourArea)
-        M = cv2.moments(c)
+        contours.sort(key = cv2.contourArea)
+        contours.reverse()
+        for c in contours:
+            #print(cv2.contourArea(c))
+            M = cv2.moments(c)
+            try:
+                A, cX, cY = area_and_centroid(M)
+            except:
+                # logger.info("No point")
+                continue
+            if 0:
+                # correct for downsampling
+                cX *= 2
+                cY *= 2
+                A *= 4
 
-        try:
-            A, cX, cY = area_and_centroid(M)
-        except:
+            p = Point(cX, cY)
+
+            if (A_min <= A <= A_max) and aoi.contains(p):
+                break
+
+            # logger.info("Invalid area %d %d %r %.2f %.2f", cX, cY, fence.contains(p), fence.exterior.distance(p), A)
+            cv2.circle(frame, (cX, cY), 15, (0, 0, 255), 2)
+
+        else:
             logger.info("No point")
-            continue
-
-        if 0:
-            # correct for downsampling
-            cX *= 2
-            cY *= 2
-            A *= 4
-
-        p = Point(cX, cY)
-
-        if not (A_min <= A <= A_max):
-            logger.info("Invalid area %d %d %r %.2f %.2f", cX, cY, fence.contains(p), fence.exterior.distance(p), A)
-            cv2.circle(frame, (cX, cY), 25, (255, 255, 0), 2)
             cv2.imshow("frame", frame)
             continue
 
