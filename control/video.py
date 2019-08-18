@@ -5,16 +5,13 @@ import numpy as np
 import logging
 import logging.config
 import yaml
+import robot
+import jsonobject
+from shapely.geometry import Point, box
 
-logger = logging.getLogger()
-# TODO: make config file
-sensitivity = 50
-fence_distance = 20
-speed = 6
-turn = 10
-A_min = 100
-A_max = 1000
-aoi_buffer = 50.0
+
+logger = logging.getLogger("main")
+
 
 def area_and_centroid(M):
     A = M["m00"]
@@ -27,16 +24,6 @@ def area(M):
 
 
 kernel = np.ones((9,9),np.uint8)
-# define range of white color in HSV
-lower_white = np.array([0,0,255-sensitivity])
-upper_white = np.array([255,sensitivity,255])
-
-
-from shapely.geometry import Point, box
-fence = box(580, 350, 1200, 600)
-aoi = fence.buffer(aoi_buffer, resolution=1, join_style=2)
-print(fence.area)
-print(aoi.area)
 
 
 def draw_exterior(shape, image, color, width):
@@ -54,18 +41,30 @@ def draw_polyline(image):
     cv2.polylines(image, [pts], True, (0,255,255), 5, 0)
 
 
-
-
 def main():
-    import sys
-    capurl = sys.argv[1]
-    print(capurl)
-
     #logging.basicConfig()
     with open("logging.yaml") as f:
         logging.config.dictConfig(yaml.full_load(f))
+
+    config = jsonobject.fromJson(yaml.full_load(open("config.yaml")))
+
+    # TODO: config below....
+    # define range of white color in HSV
+    lower_white = np.array([0,0,255-config.video.sensitivity])
+    upper_white = np.array([255,config.video.sensitivity,255])
+
+    lower_blue = np.array([95, 85, 20])
+    upper_blue = np.array([120, 255, 255])
+
+    # TODO: config white or blue - or add to config...
+    #lower_hsv, upper_hsv = lower_blue, upper_blue
+    lower_hsv, upper_hsv = lower_white, upper_white
+
+    fence = box(580, 350, 1200, 600)
+    aoi = fence.buffer(config.video.aoi_buffer, resolution=1, join_style=2)
+
+
     logger.info("Connecting to robot...")
-    import robot3 as robot
     robot.start("ws://gardenbot.local:8000/control")
 
     logger.info("Starting camera loop...")
@@ -76,7 +75,7 @@ def main():
 
     while cv2.waitKey(1) & 0xFF != ord('q'):
         # SNAP!!!! Better with video????
-        cap = cv2.VideoCapture(capurl)
+        cap = cv2.VideoCapture(config.video.url)
         t = time.time()
 
         # Capture frame-by-frame
@@ -87,6 +86,7 @@ def main():
             continue
         last_time = t
 
+        blur = cv2.GaussianBlur(frame, (21, 21), 0)
         draw_exterior(fence, frame, (0, 0, 255), 2)
         draw_exterior(aoi, frame, (0, 0, 0), 2)
         #draw_polyline(frame)
@@ -96,7 +96,6 @@ def main():
             course = frame.copy()
             cv2.imshow('course', course)
 
-        blur = cv2.GaussianBlur(frame, (21, 21), 0)
         if 0:
             # downsample
             width = int(blur.shape[1] / 2)
@@ -107,10 +106,19 @@ def main():
         # cv2.imshow('blur', blur)
         hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)    
         # Threshold the HSV image to get only white colors
-        mask = cv2.inRange(hsv, lower_white, upper_white)
-        #cv2.imshow('mask',mask)
+        mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
+        cv2.imshow('mask',mask)
         #res = cv2.bitwise_and(frame, frame, mask=mask)
         #cv2.imshow('res',res)
+
+        def onMouse(event, x, y, flags, param):
+            # print(event, flags, param)
+            if event == cv2.EVENT_LBUTTONDOWN:
+               # draw circle here (etc...)
+               print('x = %d, y = %d' % (x, y))
+               print(frame[y][x], hsv[y][x])
+        #cv2.setMouseCallback('frame', onMouse)
+
 
         #contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
         contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -139,10 +147,11 @@ def main():
 
             p = Point(cX, cY)
 
-            if (A_min <= A <= A_max) and aoi.contains(p):
+            if (config.video.area_min <= A <= config.video.area_max) and aoi.contains(p):
+                logger.debug("Valid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
                 break
 
-            # logger.info("Invalid area %d %d %r %.2f %.2f", cX, cY, fence.contains(p), fence.exterior.distance(p), A)
+            logger.debug("Invalid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
             cv2.circle(frame, (cX, cY), 15, (0, 0, 255), 2)
 
         else:
@@ -161,6 +170,8 @@ def main():
         last_point = new_point
         cv2.imshow("course", course)
 
+        t = time.time()
+
         # Buffer zone outside the fence: will run avoidance maneouvre.
         # Get into an outside state, if staying outside too long, then abort
         if not fence.contains(p):
@@ -168,7 +179,7 @@ def main():
             if not outside:
                 logger.info("OUTSIDE")
                 outside = True
-                robot.avoid(speed, turn)
+                robot.avoid(config.robot.speed, config.robot.turn)
                 # Only tries it once! So don't have to wait for it to complete.
                 # Will only continue when if the avoid ends up inside
                 continue
@@ -177,8 +188,8 @@ def main():
             continue
 
             assert outside
-            if fence.exterior.distance(p) < fence_distance:
-                robot.avoid(speed, turn)
+            if fence.exterior.distance(p) < config.robot.max_outside_distance:
+                robot.avoid(config.robot.speed, config.robot.turn)
                 # Only tries it once! So don't have to wait for it to complete.
                 # Will only continue when if the avoid ends up inside
                 continue
@@ -188,12 +199,18 @@ def main():
         # inside fence
         if outside:
             logger.info("INSIDE")
+            time_into_inside = t
             #robot.send(robot.Speed(speed))
             outside = False
             #continue
 
-        robot.send("heartbeat")
+        assert not outside
+        if t > time_into_inside + config.robot.inside_timeout:
+            logger.warning("INSIDE timeout")
+            robot.send(robot.Stop)
+            continue
 
+        robot.send(robot.Heartbeat)
 
 
     # When everything done, release the capture

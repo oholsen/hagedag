@@ -2,12 +2,25 @@ import websocket
 import time
 import threading
 import logging
+import random
 
-logger = logging.getLogger()
-
+logger = logging.getLogger("robot")
 
 #url = "ws://localhost:8000/control"
 #url = "ws://gardenbot.local:8000/control"
+
+
+def Speed(speed):
+    return "t %d" % speed
+
+def Turn(speed):
+    return "r %d" % speed
+
+Stop = "."
+Reset = "!"
+Heartbeat = "heartbeat"
+
+
 
 _lock = threading.Lock()
 _ws = None
@@ -16,19 +29,19 @@ def on_message(ws, message):
     logger.debug("From robot: %s", message.strip())
 
 def on_error(ws, error):
-    logger.info(error)
+    logger.warning(error)
 
 def on_close(ws):
     global _ws
     with _lock:
         _ws = None
-    logger.warn("### closed ###")
+    logger.warning("Robot connection closed")
 
 def on_open(ws):
     global _ws
     with _lock:
         _ws = ws
-    logger.info("### open ###")
+    logger.info("Robot connection open")
 
 
 def start(url):
@@ -56,11 +69,6 @@ def send(msg):
         if _ws is not None:
             _ws.send(msg + "\n")
 
-def Speed(speed):
-    return "t %d" % speed
-
-def Turn(speed):
-    return "r %d" % speed
 
 def schedule(plan):
     def run():
@@ -71,14 +79,16 @@ def schedule(plan):
     t = threading.Thread(target=run)
     t.setDaemon(True)
     t.start()
-    logger.debug("Starting avoidance")
+
 
 def avoid(speed, turn):
+    logger.info("Starting avoidance")
     schedule([
-        (Speed(-speed), 4), (Speed(-speed), 4), (Speed(0), 0), 
-        (Turn(turn), 8), (Turn(0), 0),
+        (Speed(-speed), 5), (Speed(-speed), 3 * random.random()), (Speed(0), 0), 
+        (Turn(turn), 8 + 2 * random.random()), (Turn(0), 0),
         (Speed(speed), 0),
         ])
+
 
 if __name__ == '__main__':
     logging.basicConfig()
@@ -87,6 +97,6 @@ if __name__ == '__main__':
         time.sleep(1)
         try:
             print("HB")
-            send("heartbeat")
+            send(Heartbeat)
         except:
             pass

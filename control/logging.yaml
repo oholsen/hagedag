@@ -20,7 +20,7 @@ root:
   level: INFO
   handlers: [console, file]
 loggers:
-  websocket.client:
-    level: INFO
+  main:
+    level: DEBUG
   websocket:
     level: INFO
