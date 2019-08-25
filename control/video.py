@@ -7,10 +7,31 @@ import logging.config
 import yaml
 import robot
 import jsonobject
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon
+import threading
+import math
 
+"""
+Improvements on control:
+* avoid stops
+* estimate speed, and estimate when hitting the fence between frames
+* track blob - with speed, select the blob that fits the extrapolated position
+* include elliptic blob in selection
+* watchdog on video frame analysis - when stops up/lags, then bail out / reset
+* online control of parameters, e.g. sensitivity
 
+* online dashboard to monitor video characteristics, etc
+* monitor current (to cutter) and reset - regular reset!?
+* missing heartbeat stops cutter too
+ 
+"""
 logger = logging.getLogger("main")
+
+# BGR
+Red = (0, 0, 255)
+Blue = (255, 0, 0)
+Black = (0, 0, 0)
+White = (255, 255, 255)
 
 
 def area_and_centroid(M):
@@ -19,11 +40,9 @@ def area_and_centroid(M):
     cY = int(M["m01"] / A)
     return A, cX, cY
 
+
 def area(M):
     return M["m00"]
-
-
-kernel = np.ones((9,9),np.uint8)
 
 
 def draw_exterior(shape, image, color, width):
@@ -34,59 +53,122 @@ def draw_exterior(shape, image, color, width):
         cv2.line(image, p0, p1, color, width)
         p0 = p1
 
-#def draw_polyline(points, image, color, width):
+
+# def draw_polyline(points, image, color, width):
 def draw_polyline(image):
     pts = np.array([[10,5],[20,30],[70,20],[50,10]], np.int32)
     pts = pts.reshape((-1,1,2))
     cv2.polylines(image, [pts], True, (0,255,255), 5, 0)
 
 
+def blob_detector():
+    # Set our filtering parameters
+    # Initialize parameter settiing using cv2.SimpleBlobDetector
+    params = cv2.SimpleBlobDetector_Params()
+
+    # Set Area filtering parameters
+    params.filterByArea = True
+    params.minArea = 20
+
+    # Set Circularity filtering parameters
+    params.filterByCircularity = True
+    params.minCircularity = 0.9
+
+    # Set Convexity filtering parameters
+    params.filterByConvexity = True
+    params.minConvexity = 0.2
+
+    # Set inertia filtering parameters
+    params.filterByInertia = True
+    params.minInertiaRatio = 0.01
+
+    # Create a detector with the parameters
+    detector = cv2.SimpleBlobDetector_create(params)
+    return detector
+
+
+def detect_blobs(detector, frame):
+    # Detect blobs
+    keypoints = detector.detect(frame)
+    # Draw blobs on our image as red circles
+    blank = np.zeros((1, 1))
+    blobs = cv2.drawKeypoints(frame, keypoints, blank, (0, 0, 255),
+                              cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+
+    text = "Number of Circular Blobs: " + str(len(keypoints))
+    cv2.putText(blobs, text, (20, 550), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 100, 255), 2)
+    cv2.imshow("Circular Blobs", blobs)
+
+
 def main():
-    #logging.basicConfig()
+    # logging.basicConfig()
     with open("logging.yaml") as f:
         logging.config.dictConfig(yaml.full_load(f))
 
+    logger.info("Starting video control")
+
     config = jsonobject.fromJson(yaml.full_load(open("config.yaml")))
 
-    # TODO: config below....
     # define range of white color in HSV
-    lower_white = np.array([0,0,255-config.video.sensitivity])
-    upper_white = np.array([255,config.video.sensitivity,255])
+    if config.video.blue:
+        hsv_min = np.array([95, 85, 160])
+        hsv_max = np.array([120, 255, 255])
+    elif config.video.white:
+        hsv_min = np.array([0, 0, 255 - config.video.sensitivity])
+        hsv_max = np.array([255, config.video.sensitivity, 255])
+    else:
+        # print(config.video.color)
+        hsv_min = np.array([x.min for x in config.video.color])
+        hsv_max = np.array([x.max for x in config.video.color])
 
-    lower_blue = np.array([95, 85, 20])
-    upper_blue = np.array([120, 255, 255])
-
-    # TODO: config white or blue - or add to config...
-    #lower_hsv, upper_hsv = lower_blue, upper_blue
-    lower_hsv, upper_hsv = lower_white, upper_white
-
-    fence = box(580, 350, 1200, 600)
+    # fence = box(580, 350, 1200, 600)
+    # print(config.fence)
+    fence = Polygon(list(((p.x, p.y) for p in config.fence)))
     aoi = fence.buffer(config.video.aoi_buffer, resolution=1, join_style=2)
-
+    detector = blob_detector()
 
     logger.info("Connecting to robot...")
-    robot.start("ws://gardenbot.local:8000/control")
+    robot.start(config.robot.url)
 
     logger.info("Starting camera loop...")
+
+    recording = None
     course = None
     outside = True
     last_time = time.time()
     last_point = None
+    avoid_complete = threading.Event()
+    avoid_complete.set()
 
     while cv2.waitKey(1) & 0xFF != ord('q'):
         # SNAP!!!! Better with video????
-        cap = cv2.VideoCapture(config.video.url)
-        t = time.time()
-
         # Capture frame-by-frame
-        ret, frame = cap.read()    
-        logger.debug("Frame interval %.3f", t - last_time)
+        cap = cv2.VideoCapture(config.video.url)
+        ret, frame = cap.read()
         if not ret:
             logger.warning("No frame %r", ret)
             continue
+        t = time.time()
+        logger.debug("Frame interval %.3f", t - last_time)
         last_time = t
 
-        blur = cv2.GaussianBlur(frame, (21, 21), 0)
+        if config.video.record and recording is None:
+            import datetime
+            timestamp = str(datetime.datetime.now())[:19].replace(":", "").replace(" ", "-")
+            filename = 'recording/%s.avi' % timestamp
+            logger.info("Recording video to %s", filename)
+            height, width, layers = frame.shape
+            recording = cv2.VideoWriter(filename, cv2.VideoWriter_fourcc(*'DIVX'), 15, (width, height))
+
+        if recording:
+            recording.write(frame)
+
+        # blur before drawing anything in frame
+        if config.video.blur:
+            blur = cv2.GaussianBlur(frame, (config.video.blur, config.video.blur), 0)
+        else:
+            blur = frame
+
         draw_exterior(fence, frame, (0, 0, 255), 2)
         draw_exterior(aoi, frame, (0, 0, 0), 2)
         #draw_polyline(frame)
@@ -106,19 +188,33 @@ def main():
         # cv2.imshow('blur', blur)
         hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)    
         # Threshold the HSV image to get only white colors
-        mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
-        cv2.imshow('mask',mask)
+        mask = cv2.inRange(hsv, hsv_min, hsv_max)
+
+        if config.video.erode.kernel:
+            kernel = np.ones((config.video.erode.kernel, config.video.erode.kernel), np.uint8)
+            mask = cv2.erode(mask, kernel, iterations=config.video.erode.iterations or 1)
+
+        if config.video.dilate.kernel:
+            kernel = np.ones((config.video.dilate.kernel, config.video.dilate.kernel), np.uint8)
+            mask = cv2.dilate(mask, kernel, iterations=config.video.dilate.iterations or 1)
+
+        cv2.imshow('mask', mask)
         #res = cv2.bitwise_and(frame, frame, mask=mask)
         #cv2.imshow('res',res)
 
         def onMouse(event, x, y, flags, param):
             # print(event, flags, param)
             if event == cv2.EVENT_LBUTTONDOWN:
-               # draw circle here (etc...)
-               print('x = %d, y = %d' % (x, y))
-               print(frame[y][x], hsv[y][x])
-        #cv2.setMouseCallback('frame', onMouse)
+                # draw circle here (etc...)
+                print('x = %d, y = %d' % (x, y))
+                print("BRG", frame[y][x])
+                print("HSV", hsv[y][x])
+                for x, mm in zip(hsv[y][x], zip(hsv_min, hsv_max)):
+                    xmin, xmax = mm
+                    print('  ', x, xmin, xmax, xmin <= x <= xmax)
+        cv2.setMouseCallback('frame', onMouse)
 
+        # detect_blobs(detector, mask)
 
         #contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
         contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -147,12 +243,31 @@ def main():
 
             p = Point(cX, cY)
 
-            if (config.video.area_min <= A <= config.video.area_max) and aoi.contains(p):
-                logger.debug("Valid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
-                break
+            if not aoi.contains(p):
+                logger.debug("Invalid point %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
+                cv2.circle(frame, (cX, cY), 15, Blue, 2)
+                continue
 
-            logger.debug("Invalid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
-            cv2.circle(frame, (cX, cY), 15, (0, 0, 255), 2)
+            if not (config.video.area_min <= A <= config.video.area_max):
+                logger.debug("Invalid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
+                cv2.circle(frame, (cX, cY), 15, Red, 2)
+                continue
+
+            logger.debug("Valid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
+
+            # TODO: find the most elliptical contour, avoid the "rear end" of robot (for white)
+
+            ellipse = cv2.fitEllipse(c)
+            cv2.ellipse(frame, ellipse, Red, 2)
+
+
+            ellipse_area = math.pi * ellipse[1][0] * ellipse[1][1] / 4
+            logger.debug("Ellipse area %.2f diff %.2f", ellipse_area, ellipse_area - A)
+            # TODO: find the center point of the ellipse
+            # appears to be "rotated" rectangle - x,y = ellipse[0]
+            # print(ellipse)
+
+            break
 
         else:
             logger.info("No point")
@@ -179,7 +294,7 @@ def main():
             if not outside:
                 logger.info("OUTSIDE")
                 outside = True
-                robot.avoid(config.robot.speed, config.robot.turn)
+                robot.avoid(config.robot.speed, config.robot.turnRate)
                 # Only tries it once! So don't have to wait for it to complete.
                 # Will only continue when if the avoid ends up inside
                 continue
@@ -189,7 +304,7 @@ def main():
 
             assert outside
             if fence.exterior.distance(p) < config.robot.max_outside_distance:
-                robot.avoid(config.robot.speed, config.robot.turn)
+                robot.avoid(config.robot.speed, config.robot.turnRate)
                 # Only tries it once! So don't have to wait for it to complete.
                 # Will only continue when if the avoid ends up inside
                 continue
@@ -210,8 +325,23 @@ def main():
             robot.send(robot.Stop)
             continue
 
-        robot.send(robot.Heartbeat)
+        if robot.battery_level is not None:
+            logger.info("Battery level %.3f", robot.battery_level)
+            if robot.battery_level < config.robot.battery_cutoff:
+                logger.warning("Battery low - stopping")
+                robot.send(robot.Stop)
+                continue
 
+        logger.debug("Avoidance %r", avoid_complete.isSet())
+        if avoid_complete.isSet():
+            # this is a problem if just reversing out of fence, immediately goes forward.
+            # but only from manual GUI control?
+            # robot.send(robot.Speed(config.robot.speed))
+            # else:
+            # don't mess up the avoidance
+            robot.send(robot.Heartbeat)
+        else:
+            logger.info("In avoidance")
 
     # When everything done, release the capture
     cap.release()
