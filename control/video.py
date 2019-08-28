@@ -140,14 +140,19 @@ def main():
     avoid_complete = threading.Event()
     avoid_complete.set()
 
+    # Snapshot or video? Frame rate, latency, 1s latency with video.
+    # Can we monitor latency? Flashing LED on robot.
+    cap = cv2.VideoCapture(config.video.url)
+
+    no_frame = 0
     while cv2.waitKey(1) & 0xFF != ord('q'):
-        # SNAP!!!! Better with video????
-        # Capture frame-by-frame
-        cap = cv2.VideoCapture(config.video.url)
         ret, frame = cap.read()
         if not ret:
             logger.warning("No frame %r", ret)
+            no_frame += 1
+            if no_frame > 10: break
             continue
+        no_frame = 0
         t = time.time()
         logger.debug("Frame interval %.3f", t - last_time)
         last_time = t
@@ -167,7 +172,8 @@ def main():
         if config.video.blur:
             blur = cv2.GaussianBlur(frame, (config.video.blur, config.video.blur), 0)
         else:
-            blur = frame
+            # TODO: make a copy
+            blur = frame.copy()
 
         draw_exterior(fence, frame, (0, 0, 255), 2)
         draw_exterior(aoi, frame, (0, 0, 0), 2)
@@ -253,19 +259,37 @@ def main():
                 cv2.circle(frame, (cX, cY), 15, Red, 2)
                 continue
 
+            if config.video.ellipse:
+                # TODO: find the most elliptical contour, avoid the "rear end" of robot (for white)
+                ellipse = cv2.fitEllipse(c)
+                ellipse_area = math.pi * ellipse[1][0] * ellipse[1][1] / 4
+                logger.debug("Ellipse area %.2f diff %.2f %.3f", ellipse_area, ellipse_area - A, 1 - A / ellipse_area)
+
+                if A/ellipse_area < 1 - config.video.ellipse.fill:
+                    logger.debug("Invalid ellipse area %.2f diff %.2f", ellipse_area, ellipse_area - A)
+                    cv2.ellipse(frame, ellipse, Red, 2)
+                    continue
+
+                w, h = ellipse[1]
+                r = w > h and w/h or h/w
+                if r > config.video.ellipse.circularity:
+                    logger.debug("Invalid ellipse circularity %.2f", r)
+                    cv2.ellipse(frame, ellipse, Red, 2)
+                    continue
+
+                # TODO: find the center point of the ellipse
+                cv2.ellipse(frame, ellipse, Black, 2)
+                # appears to be "rotated" rectangle -
+                # print(ellipse)
+                cX, cY = map(int, ellipse[0])
+
+            else:
+                cv2.circle(frame, (cX, cY), 25, Black, 2)
+
             logger.debug("Valid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
 
-            # TODO: find the most elliptical contour, avoid the "rear end" of robot (for white)
-
-            ellipse = cv2.fitEllipse(c)
-            cv2.ellipse(frame, ellipse, Red, 2)
 
 
-            ellipse_area = math.pi * ellipse[1][0] * ellipse[1][1] / 4
-            logger.debug("Ellipse area %.2f diff %.2f", ellipse_area, ellipse_area - A)
-            # TODO: find the center point of the ellipse
-            # appears to be "rotated" rectangle - x,y = ellipse[0]
-            # print(ellipse)
 
             break
 
@@ -274,7 +298,6 @@ def main():
             cv2.imshow("frame", frame)
             continue
 
-        cv2.circle(frame, (cX, cY), 25, (0, 0, 0), 2)
         cv2.imshow("frame", frame)
 
         logger.info("Point %d %d %r %.2f %.2f", cX, cY, fence.contains(p), fence.exterior.distance(p), A)
