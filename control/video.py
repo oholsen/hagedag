@@ -263,15 +263,16 @@ def main():
                 # TODO: find the most elliptical contour, avoid the "rear end" of robot (for white)
                 ellipse = cv2.fitEllipse(c)
                 ellipse_area = math.pi * ellipse[1][0] * ellipse[1][1] / 4
-                logger.debug("Ellipse area %.2f diff %.2f %.3f", ellipse_area, ellipse_area - A, 1 - A / ellipse_area)
+                logger.debug("Ellipse area %.2f %.2f diff %.2f", ellipse_area, A, ellipse_area - A)
 
-                if A/ellipse_area < 1 - config.video.ellipse.fill:
+                if ellipse_area == 0 or A < (1 - config.video.ellipse.fill) * ellipse_area:
                     logger.debug("Invalid ellipse area %.2f diff %.2f", ellipse_area, ellipse_area - A)
                     cv2.ellipse(frame, ellipse, Red, 2)
                     continue
 
                 w, h = ellipse[1]
                 r = w > h and w/h or h/w
+                logger.debug("Ellipse %r", ellipse)
                 if r > config.video.ellipse.circularity:
                     logger.debug("Invalid ellipse circularity %.2f", r)
                     cv2.ellipse(frame, ellipse, Red, 2)
