@@ -88,7 +88,13 @@
 
     $('#cut').on('click', function (e) {
       e.preventDefault();
-      cut();
+      let value = $("#cutspeed").val().trim();
+      cut(value);
+    });
+
+    $('#cut0').on('click', function (e) {
+      e.preventDefault();
+      cut(0);
     });
 
     const config = document.getElementById("config");
@@ -104,15 +110,15 @@
       post("!");
     }
 
-    function cut() {
-      let value = $("#cutspeed").val().trim();
+    function cut(value) {
       post("CUT " + value);
     }
 
     function stop() {
+      // TODO: Send STOP to control!? But also update GUI
       $("#speedSlider").slider("value", 0);
       $("#turnSlider").slider("value", 0);
-      post("CUT 0");
+      cut(0);
     }
 
     function reverse() {
@@ -241,6 +247,7 @@
     <button id="reset">Reset</button>
     <button id="cut">Cut</button>
     <input type="text" id="cutspeed" value="25" style="width: 2em">
+    <button id="cut0">Cut0</button>
     <input type="checkbox" id="heartbeat"> Hearbeat
     </div>
 
