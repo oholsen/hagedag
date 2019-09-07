@@ -92,10 +92,13 @@
     });
 
     const config = document.getElementById("config");
-    const output = document.getElementById("output");
     const inputBox = document.getElementById("command");
-    const history = document.getElementById("history");
     const form = document.getElementById("form");
+
+    function debug(message) {
+      config.value += message;
+      config.scrollTop = config.scrollHeight;
+    }
 
     function reset() {
       post("!");
@@ -151,24 +154,19 @@
       
       var timer;
       s.onopen = function (e) {
-        console.log("Socket opened.");
+        console.log("Websocket open");
         timer = setInterval(() => $("#heartbeat").prop("checked") && s.send("heartbeat\n"), 3000);
       };
       
       s.onclose = function (e) {
-        console.log("Socket closed.", e);
+        console.log("Websocket closed", e);
         clearInterval(timer);
       };
       
       s.onmessage = function (e) {
         const message = e.data;
-        console.log("Socket message:", message);
-        if (message.startsWith(" "))
-          output.value = message;
-        else {
-          config.value += message;
-          config.scrollTop = config.scrollHeight;          
-        }
+        console.log("Websocket message:", message);
+        debug(message);
         if (message.startsWith("Battery ")) {
           let vbat = message.split(" ")[1];
           $('#battery').text(vbat);
@@ -186,12 +184,8 @@
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       console.log("submit", inputBox.value);
-      let value = inputBox.value + '\n';
-      history.value += value;
-      $('#history').scrollTop($('#history')[0].scrollHeight);
-      post(value);
+      post(inputBox.value);
       inputBox.value = "";
-      config.value = "";
     });
 
 
@@ -212,66 +206,49 @@
 <legend>Control</legend>
 
 <div>
-<div style="width: 30px">
-<div style="float: left; height:200px;" id="speedSlider"></div>
-</div>
 
-<div style="margin: 30px">
-<div>
-  <label for="speedText">Speed:</label>
-  <input type="text" id="speedText" readonly style="width: 3em; border:0; color:#f6931f; font-size:110%; font-weight:bold;">
-  <button id="stop">Stop</button>
-  <button id="reverse">Reverse</button>
-</div>
+  <div style="float: left; height:200px;" id="speedSlider"></div>
 
-<div style="margin-top: 20px;">
-  <label for="turnText">Turn:</label>
-  <input type="text" id="turnText" readonly style="width: 4em; border:0; color:#f6931f; font-size:110%; font-weight:bold;">
-    <button id="straight">Straight</button>
-  <div style="margin-top: 30px; width:250px" id="turnSlider"></div>
-</div>
-</div>
+  <div style="margin: 30px">
+    <div>
+      <label for="speedText">Speed:</label>
+      <input type="text" id="speedText" readonly style="width: 3em; border:0; color:#f6931f; font-size:110%; font-weight:bold;">
+      <button id="stop">Stop</button>
+      <button id="reverse">Reverse</button>
+    </div>
 
-</div>
-  <label for="battery">Battery:</label>
-  <span id="battery"></span>
-  <div>
-  <button id="reset">Reset</button>
-  <button id="cut">Cut</button>
-</div>
-<div>
+    <div style="margin-top: 10px;">
+      <label for="turnText">Turn:</label>
+      <input type="text" id="turnText" readonly style="width: 4em; border:0; color:#f6931f; font-size:110%; font-weight:bold;">
+        <button id="straight">Straight</button>
+      <div style="margin-top: 30px; width:250px" id="turnSlider"></div>
+    </div>
+
+    <div style="margin-top: 10px;">
+    <button id="reset">Reset</button>
+    <button id="cut">Cut</button>
+    <input type="text" id="cutspeed" value="25" style="width: 2em">
+    <input type="checkbox" id="heartbeat"> Hearbeat
+    </div>
+
+    <div style="margin-top: 10px;">
+      <label for="battery">Battery:</label>
+      <span id="battery"></span>
+    </div>
+
+  </div>
+
 </div>
 
 </fieldset>
 </form>
 
-<p> 
-  <hr>
-  <p>
   <form id="form">
     <input type="text" id="command">
     <button type="submit">Command</button>
   </form>
-  <form id="params">
-    <input type="text" id="cutspeed" value="14">
-    <input type="checkbox" id="heartbeat"> Hearbeat
-  </form>
 
-<table>
-<tr>
-<td>
-  <textarea id="history" rows="8" readonly></textarea>
-</td>
-<td>
   <textarea id="config" rows="8" readonly></textarea>
-</td>
-</tr>
-<tr>
-<td colspan="2">
-  <textarea id="output" rows="5" readonly></textarea>
-</td>
-</tr>
-</table>
 
 </body>
 </html>
