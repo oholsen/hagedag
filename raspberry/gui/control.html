@@ -128,6 +128,22 @@
         slider.slider("value", slider.slider("value") + direction * slider.slider("option", "step"));
     }
 
+    function post(value) {
+      console.log("post", value);
+      try {
+        s.send(value);
+      } catch (ex) {
+        console.log("Failed to post:", ex.message);
+      }
+    }
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      console.log("submit", inputBox.value);
+      post(inputBox.value);
+      inputBox.value = "";
+    });
+
     document.addEventListener('keydown', (event) => {
       const keyName = event.key;
       //console.log('keypress event\n\n' + 'key: ' + keyName);
@@ -145,54 +161,51 @@
         straight();
     });
 
-    try {
-      // TODO: reconnect???
-      const host = "ws://" + window.location.hostname + ":8000/control";
-      console.log("Host:", host);
-      
-      var s = new WebSocket(host);
-      
-      var timer;
-      s.onopen = function (e) {
-        console.log("Websocket open");
-        timer = setInterval(() => $("#heartbeat").prop("checked") && s.send("heartbeat\n"), 3000);
-      };
-      
-      s.onclose = function (e) {
-        console.log("Websocket closed", e);
-        clearInterval(timer);
-      };
-      
-      s.onmessage = function (e) {
-        const message = e.data;
-        console.log("Websocket message:", message);
-        debug(message);
-        if (message.startsWith("Battery ")) {
-          let vbat = message.split(" ")[1];
-          $('#battery').text(vbat);
-        }
-      };
-      
-      s.onerror = function (e) {
-        console.log("Socket error:", e);
-      };
-      
-    } catch (ex) {
-      console.log("Socket exception:", ex);
+    var s;
+
+    function connect() {
+      try {
+        // TODO: reconnect???
+        const host = "ws://" + window.location.hostname + ":8000/control";
+        console.log("Host:", host);
+        
+        s = new WebSocket(host);
+        
+        var heartbeatTimer;
+
+        s.onopen = function (e) {
+          console.log("Websocket open");
+          $("#websocket").text("Open");
+          heartbeatTimer = setInterval(() => $("#heartbeat").prop("checked") && s.send("heartbeat\n"), 3000);
+        };
+        
+        s.onclose = function (e) {
+          console.log("Websocket closed", e);
+          $("#websocket").text("Closed");
+          clearInterval(heartbeatTimer);
+          setTimeout(connect, 2000);
+        };
+        
+        s.onmessage = function (e) {
+          const message = e.data;
+          console.log("Websocket message:", message);
+          debug(message);
+          if (message.startsWith("Battery ")) {
+            let vbat = message.split(" ")[1];
+            $('#battery').text(vbat);
+          }
+        };
+        
+        s.onerror = function (e) {
+          console.log("Socket error:", e);
+        };
+        
+      } catch (ex) {
+        console.log("Socket exception:", ex);
+      }
     }
 
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      console.log("submit", inputBox.value);
-      post(inputBox.value);
-      inputBox.value = "";
-    });
-
-
-    function post(value) {
-      console.log("post", value);
-      s.send(value);
-    }
+    connect();
 
   });
 </script>
@@ -236,6 +249,11 @@
       <span id="battery"></span>
     </div>
 
+    <div style="margin-top: 10px;">
+      <label for="websocket">Websocket:</label>
+      <span id="websocket">Closed</span>
+    </div>
+
   </div>
 
 </div>
@@ -243,12 +261,12 @@
 </fieldset>
 </form>
 
+
+  <textarea id="config" rows="8" readonly></textarea>
   <form id="form">
     <input type="text" id="command">
     <button type="submit">Command</button>
   </form>
-
-  <textarea id="config" rows="8" readonly></textarea>
 
 </body>
 </html>
