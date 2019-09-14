@@ -10,6 +10,7 @@ import jsonobject
 from shapely.geometry import Point, Polygon
 import threading
 import math
+from colors import *
 
 """
 Improvements on control:
@@ -26,12 +27,6 @@ Improvements on control:
  
 """
 logger = logging.getLogger("main")
-
-# BGR
-Red = (0, 0, 255)
-Blue = (255, 0, 0)
-Black = (0, 0, 0)
-White = (255, 255, 255)
 
 
 def area_and_centroid(M):
@@ -218,6 +213,11 @@ def main():
                 for x, mm in zip(hsv[y][x], zip(hsv_min, hsv_max)):
                     xmin, xmax = mm
                     print('  ', x, xmin, xmax, xmin <= x <= xmax)
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                # output YAML for fence
+                # grep FENCE video.log | cut -c47- > fence.yaml
+                logger.info("FENCE - x: %d", x)
+                logger.info("FENCE   y: %d", y)
         cv2.setMouseCallback('frame', onMouse)
 
         # detect_blobs(detector, mask)
@@ -288,10 +288,6 @@ def main():
                 cv2.circle(frame, (cX, cY), 25, Black, 2)
 
             logger.debug("Valid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
-
-
-
-
             break
 
         else:
