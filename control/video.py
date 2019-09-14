@@ -318,7 +318,8 @@ def main():
             if not outside:
                 logger.info("OUTSIDE")
                 outside = True
-                robot.avoid(config.robot.speed, config.robot.turnRate)
+                if config.robot.control:
+                    robot.avoid(config.robot.speed, config.robot.turnRate)
                 # Only tries it once! So don't have to wait for it to complete.
                 # Will only continue when if the avoid ends up inside
                 continue
@@ -344,7 +345,7 @@ def main():
             #continue
 
         assert not outside
-        if t > time_into_inside + config.robot.inside_timeout:
+        if config.robot.inside_timeout and t > time_into_inside + config.robot.inside_timeout:
             logger.warning("INSIDE timeout")
             robot.send(robot.Stop)
             continue
