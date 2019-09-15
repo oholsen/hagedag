@@ -122,8 +122,9 @@ def main():
     aoi = fence.buffer(config.video.aoi_buffer, resolution=1, join_style=2)
     detector = blob_detector()
 
-    logger.info("Connecting to robot...")
-    robot.start(config.robot.url)
+    if config.robot.control:
+        logger.info("Connecting to robot...")
+        robot.start(config.robot.url)
 
     logger.info("Starting camera loop...")
 
@@ -325,7 +326,8 @@ def main():
 
             assert outside
             if fence.exterior.distance(p) < config.robot.max_outside_distance:
-                robot.avoid(config.robot.speed, config.robot.turnRate)
+                if config.robot.control:
+                    robot.avoid(config.robot.speed, config.robot.turnRate)
                 # Only tries it once! So don't have to wait for it to complete.
                 # Will only continue when if the avoid ends up inside
                 continue
@@ -343,14 +345,16 @@ def main():
         assert not outside
         if config.robot.inside_timeout and t > time_into_inside + config.robot.inside_timeout:
             logger.warning("INSIDE timeout")
-            robot.send(robot.Stop)
+            if config.robot.control:
+                robot.send(robot.Stop)
             continue
 
         if robot.battery_level is not None:
             logger.info("Battery level %.3f", robot.battery_level)
             if robot.battery_level < config.robot.battery_cutoff:
                 logger.warning("Battery low - stopping")
-                robot.send(robot.Stop)
+                if config.robot.control:
+                    robot.send(robot.Stop)
                 continue
 
         logger.debug("Avoidance %r", avoid_complete.isSet())
@@ -360,7 +364,8 @@ def main():
             # robot.send(robot.Speed(config.robot.speed))
             # else:
             # don't mess up the avoidance
-            robot.send(robot.Heartbeat)
+            if config.robot.control:
+                robot.send(robot.Heartbeat)
         else:
             logger.info("In avoidance")
 
