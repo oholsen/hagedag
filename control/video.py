@@ -11,6 +11,7 @@ from shapely.geometry import Point, Polygon
 import threading
 import math
 from colors import *
+import diff
 
 """
 Improvements on control:
@@ -27,6 +28,21 @@ Improvements on control:
  
 """
 logger = logging.getLogger("main")
+
+
+def empty_image(cap):
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    # fps = int(cap.get(cv2.CAP_PROP_FPS))
+    # n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # print(w, h, fps, n_frames)
+    return np.zeros(shape=[h, w, 3], dtype=np.uint8)
+
+
+def create_roi(cap, config):
+    roi = empty_image(cap)
+    cv2.rectangle(roi, (1450, 50), (2400, 800), White, cv2.FILLED)
+    return roi
 
 
 def area_and_centroid(M):
@@ -95,6 +111,40 @@ def detect_blobs(detector, frame):
     cv2.imshow("Circular Blobs", blobs)
 
 
+def process(frame, config):
+    # blur before drawing anything in frame
+    if config.video.blur:
+        blur = cv2.GaussianBlur(frame, (config.video.blur, config.video.blur), 0)
+    else:
+        # TODO: make a copy
+        blur = frame.copy()
+
+    # cv2.imshow('blur', blur)
+    hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+    # Threshold the HSV image to get only white colors
+    mask = cv2.inRange(hsv, hsv_min, hsv_max)
+
+    if config.video.erode.kernel:
+        kernel = np.ones((config.video.erode.kernel, config.video.erode.kernel), np.uint8)
+        mask = cv2.erode(mask, kernel, iterations=config.video.erode.iterations or 1)
+
+    if config.video.dilate.kernel:
+        kernel = np.ones((config.video.dilate.kernel, config.video.dilate.kernel), np.uint8)
+        mask = cv2.dilate(mask, kernel, iterations=config.video.dilate.iterations or 1)
+
+    cv2.imshow('mask', mask)
+
+    # res = cv2.bitwise_and(frame, frame, mask=mask)
+    # cv2.imshow('res',res)
+
+    # detect_blobs(detector, mask)
+
+    # contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+
+    return contours
+
+
 def main():
     # logging.basicConfig()
     with open("logging.yaml") as f:
@@ -104,6 +154,7 @@ def main():
 
     config = jsonobject.fromJson(yaml.full_load(open("config.yaml")))
 
+    # Deprecated with diff.process2():
     # define range of white color in HSV
     if config.video.blue:
         hsv_min = np.array([95, 85, 160])
@@ -120,7 +171,6 @@ def main():
     # print(config.fence)
     fence = Polygon(list(((p.x, p.y) for p in config.fence)))
     aoi = fence.buffer(config.video.aoi_buffer, resolution=1, join_style=2)
-    detector = blob_detector()
 
     if config.robot.control:
         logger.info("Connecting to robot...")
@@ -136,13 +186,37 @@ def main():
     avoid_complete = threading.Event()
     avoid_complete.set()
 
+    def onMouse(event, x, y, flags, param):
+        # logger.info("onMouse %r %d %d", event, x, y)
+        # print(event, flags, param)
+        if event == cv2.EVENT_LBUTTONDOWN:
+            # draw circle here (etc...)
+            print('x = %d, y = %d' % (x, y))
+            print("BRG", frame[y][x])
+            print("HSV", hsv[y][x])
+            for x, mm in zip(hsv[y][x], zip(hsv_min, hsv_max)):
+                xmin, xmax = mm
+                print('  ', x, xmin, xmax, xmin <= x <= xmax)
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            # output YAML for fence
+            # grep FENCE video.log | cut -c47- > fence.yaml
+            logger.info("FENCE - x: %d", x)
+            logger.info("FENCE   y: %d", y)
+
     # Snapshot or video? Frame rate, latency, 1s latency with video.
     # Can we monitor latency? Flashing LED on robot.
     cap = cv2.VideoCapture(config.video.url)
 
+    show = True
+    # show = False
+    roi_mask = empty_image(cap)
+    cv2.fillPoly(roi_mask, [np.array([[int(x), int(y)] for x, y in aoi.exterior.coords])], White)
+    if show: cv2.imshow("roi", roi_mask)
+
     no_frame = 0
     while cv2.waitKey(1) & 0xFF != ord('q'):
         ret, frame = cap.read()
+        print(ret)
         if not ret:
             logger.warning("No frame %r", ret)
             no_frame += 1
@@ -164,67 +238,20 @@ def main():
         if recording:
             recording.write(frame)
 
-        # blur before drawing anything in frame
-        if config.video.blur:
-            blur = cv2.GaussianBlur(frame, (config.video.blur, config.video.blur), 0)
-        else:
-            # TODO: make a copy
-            blur = frame.copy()
+        contours = diff.process2(frame, roi_mask, show=show)
+        # contours = process(frame)
 
         draw_exterior(fence, frame, (0, 0, 255), 2)
         draw_exterior(aoi, frame, (0, 0, 0), 2)
         #draw_polyline(frame)
+
         cv2.imshow('frame', frame)
+        cv2.setMouseCallback('frame', onMouse)
 
         if course is None:
             course = frame.copy()
             cv2.imshow('course', course)
 
-        if 0:
-            # downsample
-            width = int(blur.shape[1] / 2)
-            height = int(blur.shape[0] / 2)
-            dim = (width, height)
-            blur = cv2.resize(blur, dim, interpolation = cv2.INTER_AREA)
- 
-        # cv2.imshow('blur', blur)
-        hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)    
-        # Threshold the HSV image to get only white colors
-        mask = cv2.inRange(hsv, hsv_min, hsv_max)
-
-        if config.video.erode.kernel:
-            kernel = np.ones((config.video.erode.kernel, config.video.erode.kernel), np.uint8)
-            mask = cv2.erode(mask, kernel, iterations=config.video.erode.iterations or 1)
-
-        if config.video.dilate.kernel:
-            kernel = np.ones((config.video.dilate.kernel, config.video.dilate.kernel), np.uint8)
-            mask = cv2.dilate(mask, kernel, iterations=config.video.dilate.iterations or 1)
-
-        cv2.imshow('mask', mask)
-        #res = cv2.bitwise_and(frame, frame, mask=mask)
-        #cv2.imshow('res',res)
-
-        def onMouse(event, x, y, flags, param):
-            # print(event, flags, param)
-            if event == cv2.EVENT_LBUTTONDOWN:
-                # draw circle here (etc...)
-                print('x = %d, y = %d' % (x, y))
-                print("BRG", frame[y][x])
-                print("HSV", hsv[y][x])
-                for x, mm in zip(hsv[y][x], zip(hsv_min, hsv_max)):
-                    xmin, xmax = mm
-                    print('  ', x, xmin, xmax, xmin <= x <= xmax)
-            elif event == cv2.EVENT_RBUTTONDOWN:
-                # output YAML for fence
-                # grep FENCE video.log | cut -c47- > fence.yaml
-                logger.info("FENCE - x: %d", x)
-                logger.info("FENCE   y: %d", y)
-        cv2.setMouseCallback('frame', onMouse)
-
-        # detect_blobs(detector, mask)
-
-        #contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-        contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         if len(contours) == 0:
             logger.info("No contours")
             continue
@@ -232,7 +259,7 @@ def main():
         #cv2.drawContours(mask, contours, -1, 255, 3)
         #cv2.imshow("mask", mask)
         # find the contour with the biggest area
-        contours.sort(key = cv2.contourArea)
+        contours.sort(key=cv2.contourArea)
         contours.reverse()
         for c in contours:
             #print(cv2.contourArea(c))
@@ -242,22 +269,23 @@ def main():
             except:
                 # logger.info("No point")
                 continue
-            if 0:
-                # correct for downsampling
-                cX *= 2
-                cY *= 2
-                A *= 4
 
             p = Point(cX, cY)
+
+            if A > config.video.area_max:
+                logger.debug("Area too large %d %d %.2f", cX, cY, A)
+                continue
+
+            if A < config.video.area_min:
+                logger.debug("Area too small %d %d %.2f", cX, cY, A)
+                #logger.debug("Invalid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
+                #cv2.circle(frame, (cX, cY), 15, Red, 2)
+                # TODO: could abort here...
+                continue
 
             if not aoi.contains(p):
                 logger.debug("Invalid point %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
                 cv2.circle(frame, (cX, cY), 15, Blue, 2)
-                continue
-
-            if not (config.video.area_min <= A <= config.video.area_max):
-                logger.debug("Invalid area %d %d %.2f %r %.2f", cX, cY, A, aoi.contains(p), fence.exterior.distance(p))
-                cv2.circle(frame, (cX, cY), 15, Red, 2)
                 continue
 
             if config.video.ellipse:
