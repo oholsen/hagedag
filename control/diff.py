@@ -89,7 +89,6 @@ def motion(cap):
 
     roi = np.zeros(shape=[h, w, 3], dtype=np.uint8)
     cv2.rectangle(roi, (1450, 50), (2400, 800), White, cv2.FILLED)
-    _, roi = cv2.threshold(roi, 30, 255, cv2.THRESH_BINARY)
     if show: cv2.imshow("roi", roi)
 
     i = 0
