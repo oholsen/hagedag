@@ -11,26 +11,22 @@ roi_mask = None
 
 """
 If robot is present in the first frame, then absdiff() gives big signal where robot was at frame 0 after it has
-started moving.
-
-Update background continuously to adapt to slowly 
+started moving. Update background continuously to adapt to slowly. 
 """
 
 
 backSub = cv2.createBackgroundSubtractorMOG2(history=200, varThreshold=32, detectShadows=False)
-#backSub = cv2.createBackgroundSubtractorKNN(history=200, dist2Threshold=3000, detectShadows=False)
+# backSub = cv2.createBackgroundSubtractorKNN(history=200, dist2Threshold=3000, detectShadows=False)
 
 
-def process2(frame, show=False):
-    global roi_mask
-    if roi_mask is None:
-        roi_mask = np.zeros_like(frame)
-        cv2.rectangle(roi_mask, (1450, 50), (2400, 800), 255, cv2.FILLED)
-        _, roi_mask = cv2.threshold(roi_mask, 30, 255, cv2.THRESH_BINARY)
-        if show: cv2.imshow("roi", roi_mask)
+def process2(frame, roi=None, show=False):
 
     blur = cv2.GaussianBlur(frame, (15, 15), 0)
-    blur = cv2.bitwise_and(blur, roi_mask)
+    # Apparently 5x faster, only for rectangular ROI:
+    # blur2 = np.zeros(img.shape, np.uint8)
+    # blur2[y:y + h, x:x + w] = blur[y:y + h, x:x + w]
+    if roi is not None:
+        blur = cv2.bitwise_and(blur, roi)
     if show: cv2.imshow("Blur", blur)
 
     thresh_frame = backSub.apply(blur)
@@ -46,7 +42,7 @@ def process2(frame, show=False):
     return contours
 
 
-def process(frame, show=False):
+def process(frame, roi=None, show=False):
 
     global background, roi_mask
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -54,15 +50,8 @@ def process(frame, show=False):
     if show:
         cv2.imshow("Blurred", gray)
 
-    if roi_mask is None:
-        roi_mask = np.zeros_like(gray)
-        # roi = cv2.cvtColor(roi, cv2.CV_8UC1) # TODO: reshape
-        cv2.rectangle(roi_mask, (1500, 100), (2300, 800), 255, cv2.FILLED)
-        roi_mask = cv2.threshold(roi_mask, 30, 255, cv2.THRESH_BINARY)[1]
-        if show:
-            cv2.imshow("roi", roi_mask)
-
-    gray = cv2.bitwise_and(gray, gray, mask=roi_mask)
+    if roi is not None:
+        gray = cv2.bitwise_and(gray, roi)
 
     if background is None:
         background = gray
@@ -87,22 +76,34 @@ def process(frame, show=False):
         return None
 
 
-def motion(video):
-
+def motion(cap):
     #video.set(2, 1540)
-    show = False
+    #show = False
+    show = True
+
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # print(w, h, fps, n_frames)
+
+    roi = np.zeros(shape=[h, w, 3], dtype=np.uint8)
+    cv2.rectangle(roi, (1450, 50), (2400, 800), White, cv2.FILLED)
+    _, roi = cv2.threshold(roi, 30, 255, cv2.THRESH_BINARY)
+    if show: cv2.imshow("roi", roi)
+
     i = 0
-    while video.isOpened():
-        check, frame = video.read()
+    while cap.isOpened():
+        check, frame = cap.read()
         if frame is None:
             break
+        i += 1
 
         # logger.debug("frame %d", i)
-        i += 1
         #if i < 1540: continue
 
         # contours = process(frame, show=True)
-        contours = process2(frame, show=show)
+        contours = process2(frame, roi, show=show)
 
         contours.sort(key=cv2.contourArea)
         contours.reverse()
