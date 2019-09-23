@@ -28,7 +28,6 @@ class Servo(object):
                 # mid-point is 1.5ms pulse
                 power = max(min(power / 100, 1), 0)
                 pw = 1500 + self.pulseWidthRange * (2 * power - 1)
-                print(pw)
                 pi.set_servo_pulsewidth(self.pin, pw)
 
 
