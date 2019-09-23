@@ -11,12 +11,18 @@ pi.set_mode(15, pigpio.ALT5) # RXD
 
 stm = serial.Serial("/dev/ttyS0", baudrate=115200, timeout=3.0)
 cutter = servo.cutter
+
+# Depending on whether motor driver (ESC) is reversible or not
+# cut = cutter.power # non-reversible
+cut = cutter.amplitude # reversible
+
 # Arm the motor controller by giving PWM signal
-cutter.power(0)
+cut(0)
 
 
 def stop():
-    cutter.off()
+    cut(0)
+    # cutter.off() # stop PWN
     stm.write('.' + '\n')
 
 
@@ -33,6 +39,7 @@ signal.signal(signal.SIGALRM, handler)
 def handle(data):
     # Dispatch message to RPI or STM
     data = data.strip()
+    print("handle %r", data)
 
     # Watchdog on the cutter, if loose touch then stop...
     if data.startswith('heartbeat'):
@@ -47,7 +54,7 @@ def handle(data):
     elif data.startswith('CUT'):
         try:
             cols = data.split()
-            cutter.power(float(cols[1]))
+            cut(float(cols[1]))
         except:
             cutter.off()
             print("Failed to handle CUT: " + data)
