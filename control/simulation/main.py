@@ -2,6 +2,7 @@ import math
 from math import sin, cos, pi
 from dataclasses import dataclass
 from Plot import Plot
+from PID import PID
 
 plot = Plot()
 
@@ -12,6 +13,8 @@ class State:
     y: float
     theta: float
 
+
+slip_left = 1
 
 class Robot:
 
@@ -30,7 +33,7 @@ class Robot:
     def set_speed_omega(self, speed, omega):
         speed_delta = omega * self.B / 2
         self.vR = speed + speed_delta
-        self.vL = 1 * (speed - speed_delta)
+        self.vL = slip_left * (speed - speed_delta)
 
     def move(self, dt):
         v = self.speed()
@@ -91,7 +94,7 @@ def arc(robot, radius, speed, end_theta, direction):
         #time.sleep(self.dt)
         i += 1
 
-    print("ARC", direction, i, end_theta, robot.state.theta, dtheta, dtheta_last)
+    # print("ARC", direction, i, end_theta, robot.state.theta, dtheta, dtheta_last)
 
 
 def norm_angle(a):
@@ -103,11 +106,16 @@ def norm_angle(a):
 
 
 def fill():
-    # TODO: need PID controller to catch offset from wheel slip
+    # PID controller to catch offset from wheel slip
+
+    global slip_left
+    slip_left = 0.95
+    pid = PID(0.4, 2, 1.5, 0.2)
 
     robot = Robot()
     hline_diff = 1
     hline_y = -10.0
+    hline_x = 15
 
     dt = 0.1
     if 0:
@@ -115,9 +123,14 @@ def fill():
         robot.state.x = -20
     else:
         right = False
-        robot.state.x = 20
-    robot.state.y = 1
+        robot.state.x = 0
+    robot.state.y = -5
     robot.state.theta = 1
+
+    right = True
+    robot.state.theta = 0.001
+    robot.state.y = hline_y + 0.01
+    robot.state.x = -hline_x + 0.5
 
     i = 0
     while True:
@@ -133,24 +146,34 @@ def fill():
         speed = 0.5 * math.exp(-abs(5*dtheta)**2)
         # relax towards desired _theta
         omega = dtheta / 2
-        robot.set_speed_omega(speed, omega)
+        domega = 0
+        if abs(d) < 0.4:
+            domega = -pid.update(d, dt)
+            if right:
+                domega = -domega
+        robot.set_speed_omega(speed, omega + domega)
         robot.move(dt)
         if i % 10 == 0:
             # print(d, _theta, dtheta, speed, omega, r.state.theta)
             # print(i, r.state.x, r.state.y, r.speed(), r.state.theta)
+            # print(dtheta, d, domega)
+            print(d, dtheta, speed, omega, domega)
+            #print(x, y, theta, speed, omega, domega)
             plot.update(robot)
         # time.sleep(self.dt)
         i += 1
 
         # TODO: do half-circle, hit new line quickly
-        if right and robot.state.x > 10:
+        if right and robot.state.x > hline_x:
             right = False
             hline_y += hline_diff
             arc(robot, hline_diff/2, 0.3, pi, True)
-        elif not right and robot.state.x < -10:
+            pid.clear()
+        elif not right and robot.state.x < -hline_x:
             right = True
             hline_y += hline_diff
             arc(robot, hline_diff/2, 0.3, 0, False)
+            pid.clear()
         if hline_y > 10:
             break
 
