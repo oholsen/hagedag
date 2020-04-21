@@ -1,100 +1,178 @@
 import math
 from math import sin, cos, pi
-from dataclasses import dataclass
-from Plot import Plot
+from Plotting import Plot
 from PID import PID
+from state import State
+from dataclasses import replace
 
 plot = Plot()
 
+# e.g. "slipping" if diameter of left wheel is smaller
+slip_left = 0.0
+# slip_left = 0.05
 
-@dataclass
-class State:
-    x: float
-    y: float
-    theta: float
+"""
+TODO:
+- Estimate heading - from odometry - with noise
+- Test error in position estimate
+- Fuse GPS and odometry, with noise in GPS and odometry - and systematic error in odometry
+
+Heading estimate:
+- based on GPS path, extrapolate with odometry
+- e.g. complementary filter with high-pass on odometry and low-pass from GPS
 
 
-slip_left = 1
+omega_odometry = delta wheel speed / wheel_base
+heading_gps = delta GPS pos over the last T seconds
+If the  delta GPS pos is small, then update based on odometry only, e.g. if the robot turns around it's own axis
+alpha is based on dt - 
+
+heading = (1-alpha)*(heading + omega_odometry * dt) + alpha * heading_gps
+
+"""
+
+class Estimator:
+
+    def update(self, dt: float, state: State):
+        pass
+
+    def state(self) -> State:
+        pass
+
+
+class ExactEstimator(Estimator):
+
+    def __init__(self, state: State):
+        self._state = state
+
+    def update(self, dt: float, state: State):
+        self._state = state
+
+    def state(self) -> State:
+        return self._state
+
+
+class HeadingEstimator(Estimator):
+
+    def __init__(self, state: State):
+        self._state = state
+
+    def update(self, dt: float, state: State):
+        self._state = state
+
+    def state(self) -> State:
+        state = replace(self._state)
+        # TODO: calculate theta
+        return state
+        #return self._state
+
 
 class Robot:
+    # physical state
 
-    def __init__(self):
-        self.vR = 0
-        self.vL = 0
+    def __init__(self, state: State, estimator: Estimator):
         self.B = 0.3
-        self.state = State(0, 0, 0)
+        self.t = 0.0
+        self.t_plot: float = None
+        self.state = state 
+        self.estimator = estimator
+        self.vR = 0.0
+        self.vL = 0.0
+        self.set_speed_omega(state.speed, state.omega)
 
-    def speed(self):
-        return (self.vR + self.vL) / 2
-
-    def omega(self):
-        return (self.vR - self.vL) / self.B
-    
-    def set_speed_omega(self, speed, omega):
+    def set_speed_omega(self, speed: float, omega: float):
         speed_delta = omega * self.B / 2
-        self.vR = speed + speed_delta
-        self.vL = slip_left * (speed - speed_delta)
+        vR = speed + speed_delta
+        vL = (1 - slip_left) * (speed - speed_delta)
+        self.state.speed = (vR + vL) / 2.0
+        self.state.omega = (vR - vL) / self.B
 
-    def move(self, dt):
-        v = self.speed()
-        w = self.omega()
+    def update(self, dt):
+        v = self.state.speed
+        w = self.state.omega
         dx_dt = v * cos(self.state.theta)
         dy_dt = v * sin(self.state.theta)
         self.state.x += dx_dt * dt
         self.state.y += dy_dt * dt
         self.state.theta += w * dt
+        self.state.speed = v
+        self.state.omega = w
+        self.t += dt
+        self.estimator.update(dt, self.state)
+        if self.t_plot is None or self.t > self.t_plot + 1:
+            plot.update(self.state) 
+            self.t_plot = self.t
+        # time.sleep(self.dt)
+
+
+class Control:
+
+    def __init__(self, robot: Robot):
+        self.robot = robot
+        self.pid = PID(0.4, 2, 1.5, 0.2)
+
+    def state(self) -> State:
+        return self.robot.estimator.state()
+
+    def reset(self):
+        self.pid.clear()
+
+    def update_hline(self, dt, y, right):
+        state = self.state()
+        d = y - state.y
+        # angle is 90 for large d
+        _theta = (pi/2) * (1 - math.exp(-(2*d)**2))
+        if d < 0:
+            _theta = -_theta
+        if not right:
+            _theta = pi - _theta
+        dtheta = norm_angle(_theta - state.theta)
+        # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
+        speed = 0.5 * math.exp(-abs(5*dtheta)**2)
+        # relax towards desired _theta
+        omega = dtheta / 2
+        domega = 0
+        if abs(d) < 0.4:
+            domega = -self.pid.update(d, dt)
+            if right:
+                domega = -domega
+        else:
+            # TODO: reset PID? or update PID without using result?
+            pass
+        self.robot.set_speed_omega(speed, omega + domega)
+        self.robot.update(dt)
+
+
+    def arc(self, dt, radius, speed, end_theta, direction):
+
+        omega = speed / radius
+        if not direction:
+            omega = -omega
+        self.robot.set_speed_omega(speed, omega)
+
+        # stop at first zero crossing, but not a random jump +-pi
+        dtheta_last = norm_angle(self.state().theta - end_theta)
+
+        while True:
+            dtheta = norm_angle(self.state().theta - end_theta)
+            if abs(dtheta) < 0.5:
+                if dtheta_last < 0 and dtheta >= 0: break
+                if dtheta_last > 0 and dtheta <= 0: break
+            dtheta_last = dtheta
+            self.robot.update(dt)
+
+        # print("ARC", direction, i, end_theta, robot.state.theta, dtheta, dtheta_last)
 
 
 def circle():
-    robot = Robot()
-    # circumference 2 pi R
     R = 20
-    if 0:
-        T = 10 # period
-        speed = 2 * pi * R / T
-        omega = 2 * pi / T
-    else:
-        speed = 0.5
-        omega = speed / R
-    dt = 0.1
-    robot.state.y = -R
-    robot.set_speed_omega(speed, omega)
-
-    i = 0
-    while True:
-        robot.move(dt)
-        if i % 20 == 0:
-            print(i, robot.state.x, robot.state.y, robot.speed(), robot.state.theta)
-            plot.update(robot)
-        #time.sleep(self.dt)
-        i += 1
-
-
-def arc(robot, radius, speed, end_theta, direction):
-
-    omega = speed / radius
-    if not direction:
-        omega = -omega
-    robot.set_speed_omega(speed, omega)
-
-    # stop at first zero crossing, but not a random jump +-pi
-    dtheta_last = norm_angle(robot.state.theta - end_theta)
-
-    i = 0
+    speed = 0.5
+    omega = speed / R # anti-clockwise
+    state = State(0, -R, 0, speed, omega) # exact state
+    robot = Robot(state, None)
     dt = 0.1
     while True:
-        dtheta = norm_angle(robot.state.theta - end_theta)
-        if abs(dtheta) < 0.5:
-            if dtheta_last < 0 and dtheta >= 0: break
-            if dtheta_last > 0 and dtheta <= 0: break
-        dtheta_last = dtheta
-        robot.move(dt)
-        if i % 10 == 0:
-            plot.update(robot)
-        #time.sleep(self.dt)
-        i += 1
-
-    # print("ARC", direction, i, end_theta, robot.state.theta, dtheta, dtheta_last)
+        robot.update(dt)
 
 
 def norm_angle(a):
@@ -106,74 +184,56 @@ def norm_angle(a):
 
 
 def fill():
-    # PID controller to catch offset from wheel slip
-
-    global slip_left
-    slip_left = 0.95
-    pid = PID(0.4, 2, 1.5, 0.2)
-
-    robot = Robot()
+    arc_speed = 0.3
     hline_diff = 1
     hline_y = -10.0
     hline_x = 15
-
     dt = 0.1
+
+    state = State(0, 0, 0, 0, 0) # exact state
+
     if 0:
         right = True
-        robot.state.x = -20
+        state.x = -20
     else:
         right = False
-        robot.state.x = 0
-    robot.state.y = -5
-    robot.state.theta = 1
+        state.x = 0
+    state.y = -5
+    state.theta = 1
 
     right = True
-    robot.state.theta = 0.001
-    robot.state.y = hline_y + 0.01
-    robot.state.x = -hline_x + 0.5
+    state.theta = 0.001
+    state.y = hline_y + 0.01
+    state.x = -hline_x + 0.5
+    
+    robot = Robot(state, ExactEstimator(state))
+    control = Control(robot)
 
     i = 0
     while True:
-        d = hline_y - robot.state.y
-        # angle is 90 for large d
-        _theta = (pi/2) * (1 - math.exp(-(2*d)**2))
-        if d < 0:
-            _theta = -_theta
-        if not right:
-            _theta = pi - _theta
-        dtheta = norm_angle(_theta - robot.state.theta)
-        # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
-        speed = 0.5 * math.exp(-abs(5*dtheta)**2)
-        # relax towards desired _theta
-        omega = dtheta / 2
-        domega = 0
-        if abs(d) < 0.4:
-            domega = -pid.update(d, dt)
-            if right:
-                domega = -domega
-        robot.set_speed_omega(speed, omega + domega)
-        robot.move(dt)
+        control.update_hline(dt, hline_y, right)
         if i % 10 == 0:
             # print(d, _theta, dtheta, speed, omega, r.state.theta)
             # print(i, r.state.x, r.state.y, r.speed(), r.state.theta)
             # print(dtheta, d, domega)
-            print(d, dtheta, speed, omega, domega)
-            #print(x, y, theta, speed, omega, domega)
-            plot.update(robot)
+            # print(d, dtheta, speed, omega, domega)
+            # print(x, y, theta, speed, omega, domega)
+            # plot.update(robot)
+            pass
         # time.sleep(self.dt)
         i += 1
 
-        # TODO: do half-circle, hit new line quickly
-        if right and robot.state.x > hline_x:
+        state = robot.estimator.state()
+        if right and state.x >= hline_x:
             right = False
             hline_y += hline_diff
-            arc(robot, hline_diff/2, 0.3, pi, True)
-            pid.clear()
-        elif not right and robot.state.x < -hline_x:
+            control.arc(dt, hline_diff/2, arc_speed, pi, True)
+            control.reset()
+        elif not right and state.x <= -hline_x:
             right = True
             hline_y += hline_diff
-            arc(robot, hline_diff/2, 0.3, 0, False)
-            pid.clear()
+            control.arc(dt, hline_diff/2, arc_speed, 0, False)
+            control.reset()
         if hline_y > 10:
             break
 

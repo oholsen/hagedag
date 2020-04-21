@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from math import cos, sin
+from state import State
 
 
 class Plot():
@@ -12,8 +13,8 @@ class Plot():
     def show(self):
         plt.show()
 
-    def update(self, robot):
-        self.plot(robot.state.x, robot.state.y, robot.speed(), robot.state.theta)
+    def update(self, state: State):
+        self.plot(state.x, state.y, state.speed, state.theta)
 
     def plot(self, x, y, speed, theta):
         self.x.append(x)
