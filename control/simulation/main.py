@@ -1,15 +1,20 @@
 import math
 from math import sin, cos, pi
+import cmath
 from Plotting import Plot
 from PID import PID
 from state import State
 from dataclasses import replace
+import numpy as np
+from statistics import leastsq
 
 plot = Plot()
 
 # e.g. "slipping" if diameter of left wheel is smaller
 slip_left = 0.0
 # slip_left = 0.05
+# FIXME: does not handle any error here, e.g. 1.01
+omega_scale = 1.01
 
 """
 TODO:
@@ -17,19 +22,9 @@ TODO:
 - Test error in position estimate
 - Fuse GPS and odometry, with noise in GPS and odometry - and systematic error in odometry
 
-Heading estimate:
-- based on GPS path, extrapolate with odometry
-- e.g. complementary filter with high-pass on odometry and low-pass from GPS
-
-
-omega_odometry = delta wheel speed / wheel_base
-heading_gps = delta GPS pos over the last T seconds
-If the  delta GPS pos is small, then update based on odometry only, e.g. if the robot turns around it's own axis
-alpha is based on dt - 
-
-heading = (1-alpha)*(heading + omega_odometry * dt) + alpha * heading_gps
-
 """
+
+
 
 class Estimator:
 
@@ -53,18 +48,63 @@ class ExactEstimator(Estimator):
 
 
 class HeadingEstimator(Estimator):
+    # Complementary filter with high-pass on odometry and low-pass from GPS.
+
+    alpha = 0.3
+    min_distance = 0.2
 
     def __init__(self, state: State):
-        self._state = state
+        self._state: State = replace(state)
+        self.t = 0.0
+        self.positions = []
+
+    def heading(self, dt: float, state: State):
+        omega_odometry = omega_scale * state.omega
+        theta = self._state.theta
+        theta_odo = norm_angle(theta + omega_odometry * dt)
+        if abs(omega_odometry) < 0.1 and len(self.positions) > 1:
+            t0, p0 = self.positions[0]
+            t1, p1 = self.positions[-1]
+            dt: float = t1 - t0
+            d: complex = p1 - p0
+            # check if good linear fit, avoid lagging heading in turns
+            xs = np.array([p[1].real for p in self.positions])
+            ys = np.array([p[1].imag for p in self.positions])
+            fit = leastsq(xs, ys)            
+            print("FIT", len(self.positions), fit, dt, abs(d))
+            if fit and abs(abs(fit[2]) - 1) < 0.05 and abs(dt) > 0.4 and abs(d) >= self.min_distance:
+                theta_gps = norm_angle(cmath.phase(d))
+                print("HDG FILTER", dt, fit, d, len(xs), theta, omega_odometry, theta_gps, theta_odo)
+                theta = norm_angle((1 - self.alpha) * theta_odo + self.alpha * theta_gps)
+                return theta
+
+        # TODO: use position encoders difference...
+        print("HDG ODO", theta_odo);
+        return theta_odo
+
 
     def update(self, dt: float, state: State):
-        self._state = state
+        self.t += dt
+        # TODO: estimate position
+        self.positions.append((self.t, complex(state.x, state.y)))
+        while self.positions[0][0] < self.t - 0.5:
+            self.positions.pop(0)
+        theta = self.heading(dt, state)
+        if 0:
+            # No fusion, just error:
+            omega_odometry = omega_scale * state.omega
+            theta = self._state.theta + omega_odometry * dt
 
+        # print(self.t, state.omega, theta, state.theta, norm_angle(theta - state.theta))
+        self._state = replace(state, theta=theta)
+        error = norm_angle(self._state.theta - state.theta)
+        print("HDG", self._state.theta, state.theta, theta, error)
+
+        #if abs(error) > 0.2: raise SystemExit
+        # print(self.t, d, abs(d), cmath.phase(d), state.theta)
+    
     def state(self) -> State:
-        state = replace(self._state)
-        # TODO: calculate theta
-        return state
-        #return self._state
+        return self._state 
 
 
 class Robot:
@@ -76,8 +116,6 @@ class Robot:
         self.t_plot: float = None
         self.state = state 
         self.estimator = estimator
-        self.vR = 0.0
-        self.vL = 0.0
         self.set_speed_omega(state.speed, state.omega)
 
     def set_speed_omega(self, speed: float, omega: float):
@@ -109,7 +147,7 @@ class Control:
 
     def __init__(self, robot: Robot):
         self.robot = robot
-        self.pid = PID(0.4, 2, 1.5, 0.2)
+        self.pid = PID(0.4, 1, 1.5, 0.2)
 
     def state(self) -> State:
         return self.robot.estimator.state()
@@ -121,16 +159,16 @@ class Control:
         state = self.state()
         d = y - state.y
         # angle is 90 for large d
-        _theta = (pi/2) * (1 - math.exp(-(2*d)**2))
+        theta = (pi/2) * (1 - math.exp(-(2*d)**2))
         if d < 0:
-            _theta = -_theta
+            theta = -theta
         if not right:
-            _theta = pi - _theta
-        dtheta = norm_angle(_theta - state.theta)
+            theta = pi - theta
+        dtheta = norm_angle(theta - state.theta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
         speed = 0.5 * math.exp(-abs(5*dtheta)**2)
         # relax towards desired _theta
-        omega = dtheta / 2
+        omega = dtheta # / 2
         domega = 0
         if abs(d) < 0.4:
             domega = -self.pid.update(d, dt)
@@ -139,6 +177,7 @@ class Control:
         else:
             # TODO: reset PID? or update PID without using result?
             pass
+        print(d, theta, state.theta, dtheta, speed, domega)
         self.robot.set_speed_omega(speed, omega + domega)
         self.robot.update(dt)
 
@@ -178,7 +217,7 @@ def circle():
 def norm_angle(a):
     while a > pi:
         a -= 2 * pi
-    while a < -pi:
+    while a <= -pi:
         a += 2 * pi
     return a
 
@@ -201,14 +240,20 @@ def fill():
     state.y = -5
     state.theta = 1
 
-    right = True
-    state.theta = 0.001
+    if 1:
+        right = True
+        state.theta = 0.001
+    else:
+        right = False
+        state.theta = pi + 0.001
     state.y = hline_y + 0.01
     state.x = -hline_x + 0.5
+    state.x = hline_x - 5
     
-    robot = Robot(state, ExactEstimator(state))
+    robot = Robot(state, HeadingEstimator(state))
     control = Control(robot)
 
+    print("hline")
     i = 0
     while True:
         control.update_hline(dt, hline_y, right)
@@ -227,13 +272,17 @@ def fill():
         if right and state.x >= hline_x:
             right = False
             hline_y += hline_diff
+            print("arc")
             control.arc(dt, hline_diff/2, arc_speed, pi, True)
             control.reset()
+            print("hline")
         elif not right and state.x <= -hline_x:
             right = True
             hline_y += hline_diff
+            print("arc")
             control.arc(dt, hline_diff/2, arc_speed, 0, False)
             control.reset()
+            print("hline")
         if hline_y > 10:
             break
 
