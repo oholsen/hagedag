@@ -1,0 +1,11 @@
+[Unit]
+Description=GPS server
+After=multi-user.target
+
+[Service]
+Type=idle
+WorkingDirectory=/home/pi/gardenbot/gps
+ExecStart=npm start
+
+[Install]
+WantedBy=multi-user.target

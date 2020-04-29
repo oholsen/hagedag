@@ -1,2 +1,7 @@
 /.vscode/
 /.idea/
+node_modules
+config.yaml
+config.yml
+
+HageDag.code-workspace

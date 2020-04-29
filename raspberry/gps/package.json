@@ -1,0 +1,18 @@
+{
+  "name": "gps",
+  "version": "1.0.0",
+  "description": "",
+  "main": "gps.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node gps.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "config-yaml": "^1.1.4",
+    "ecef-projector": "^1.0.1",
+    "ntrip-client": "^1.0.3",
+    "serialport": "^8.0.7"
+  }
+}
