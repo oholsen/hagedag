@@ -57,7 +57,11 @@ def _check_checksum(message: str) -> bool:
     return _checksum(message) == checksum
 
 
-class GGA(object):
+class GPS(object):
+    pass
+
+
+class GGA(GPS):
     def __init__(self, segments):
         self.time = parse_time(segments[1])
         self.lat = parse_lat(segments[2], segments[3])
@@ -68,13 +72,13 @@ class GGA(object):
         self.alt = to_float(segments[9])
 
 
-class VTG(object):
+class VTG(GPS):
     def __init__(self, segments):
         self.course = to_float(segments[1]) # True north
         self.speed = to_float(segments[7]) # km/h
 
 
-class RMC(object):
+class RMC(GPS):
     def __init__(self, segments):
         self.time = parse_time(segments[1])
         self.status = segments[2]
@@ -82,16 +86,16 @@ class RMC(object):
         self.lon = parse_lon(segments[5], segments[6])
         self.speed_knots = to_float(segments[8])
         self.course_over_ground = to_float(segments[9])
-        self.date = segments[9] # ddmmyy
-        self.mode = segments[10] # R for RTK
+        self.date = segments[9] # "ddmmyy"
+        self.mode = segments[10] # "R" for RTK
 
 
-class Ignore:
+class Ignore(GPS):
     def __init__(self, segments):
         self.segments = segments
 
 
-sentences = {
+_sentences = {
     "GNGGA": GGA,
     "GNVTG": VTG,
     "GNRMC": RMC,
@@ -105,20 +109,27 @@ def process(line):
     cmd = segments[0]
     assert cmd[0] == "$"
     cmd = cmd[1:]
-    # sentence = sentences.get(cmd, Record)
-    sentence = sentences.get(cmd)
+    sentence = _sentences.get(cmd) # , Record)
     if sentence:
         return sentence(segments)
+
 
 class UTM(object):
     def __init__(self, lat, lon):
         self.easting, self.northing, self.zone_number, self.zone_letter = utm.from_latlon(lat, lon)
+
+    def diff(self, u0):
+        return self.easting - u0.easting, self.northing - u0.northing
+
 
 class LatLon(object):
     def __init__(self, lat, lon):
         self.lat = lat
         self.lon = lon
 
+
+p0 = LatLon(59.81665870, 10.36129810)
+u0 = UTM(p0.lat, p0.lon)
 
 
 def main():
@@ -127,8 +138,6 @@ def main():
     from simulation.Plotting import Plot
     plot = Plot()
 
-    p0 = LatLon(59.81665870, 10.36129810)
-    u0 = UTM(p0.lat, p0.lon)
     vtg = None # vtg reported before gga on the same fix
 
     for line in open("data/gps.log"):
