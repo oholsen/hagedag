@@ -35,8 +35,9 @@ def process(line: str) -> Optional[object]:
 class LogParser(object):
 
     def __init__(self, speed:float=0, omega:float=0):
-        # Input (u) [speed omega]' from Speed or from Translate/Rotate commands.
-        # Try both, Speed is more noisy but possibly more correct, although can get aliasing (but is LPed but not enough).
+        # Input (u) [speed omega]' from Speed, commands, or Revs.
+        # Revs seems to slow down without any good reason (GPS progresses with same speed).
+        # Speed is more noisy but can have aliasing (LP not slow enough).
         
         # Commands
         self.speed1 = speed
@@ -80,9 +81,9 @@ class LogParser(object):
                 if self.rmc_time is None:
                     dt = None
                 else:
-                    dt = (tt - self.revs_time).total_seconds()
+                    dt = (tt - self.rmc_time).total_seconds()
                     dx, dy = u.diff(GPS.UTM(self.rmc.lat, self.rmc.lon))
-                    dl = math.hypot(dx, dy)
+                    speed_gps = math.hypot(dx, dy) / dt
                     #print("SPEEDGPS", dl/dt)
 
                 ud = np.array([[speed], [omega]])
@@ -138,7 +139,7 @@ class LogParser(object):
                 continue
 
 
-def track1(stream):
+def test_read(stream):
     p = LogParser()
     for t, dt, z, u in p.read(stream):
         print(t, dt, z, u)
@@ -146,37 +147,14 @@ def track1(stream):
 
 def track(stream, yaw=0, speed=0):
     p = LogParser()
-    tracking.track2(p.read(stream), yaw=yaw, speed=speed)
+    tracking.track(p.read(stream), yaw=yaw, speed=speed)
 
 
-def main2(stream):
+def show(stream):
     for line in stream:
         tt, o = process(line)
         if o:
             print(tt, o)
-
-
-def main(stream):
-    for line in stream:
-        line = line.strip()
-        # print(line)
-        cols = line.split()
-        if len(cols) < 4:
-            continue
-        t = line[:23].replace(",", ".")
-        tt = datetime.fromisoformat(t)
-        # print(t, tt, line)
-        # continue
-        if len(cols) == 5 and cols[3] == "GPS":
-            msg = cols[4]
-            o = GPS.process(msg)
-            if o:
-                print(tt, "GPS", msg, o)
-        elif len(cols) > 5 and cols[3] == "ROBOT":
-            msg = " ".join(cols[4:])
-            o = RobotState.process(msg)
-            if o:
-                print(tt, "ROBOT", msg, o)
 
 
 if __name__ == "__main__":
@@ -187,5 +165,4 @@ if __name__ == "__main__":
     )
     filename = sys.argv[1]
     stream = open(filename)
-    #main(stream)
     track(stream, yaw=-0.80*math.pi)

@@ -16,10 +16,10 @@ GPS_NOISE = np.diag([0.03, 0.03]) ** 2
 
 # Covariance for EKF simulation
 Q = np.diag([
-    0.1,  # variance of location on x-axis
-    0.1,  # variance of location on y-axis
-    np.deg2rad(30.0),  # variance of yaw angle
-    0.5  # variance of velocity
+    0.02,  # variance of location on x-axis
+    0.02,  # variance of location on y-axis
+    np.deg2rad(10.0),  # variance of yaw angle
+    0.1  # variance of velocity
 ]) ** 2  # predict state covariance
 
 # Observation x,y position covariance
@@ -179,60 +179,6 @@ def plot_covariance_ellipse(xEst, PEst):  # pragma: no cover
     plt.plot(px, py, "--r")
 
 
-def simulation():
-    dt = 0.1  # time tick [s]
-    SIM_TIME = 50.0  # simulation time [s]
-    time = 0.0
-    show_animation = True
-
-    # State Vector [x y yaw v]'
-    xTrue = np.zeros((4, 1))
-    xDR = np.zeros((4, 1))  # Dead reckoning
-
-    # State Vector [x y yaw v]'
-    xEst = np.zeros((4, 1))
-    PEst = np.eye(4)
-
-    # history: TODO: empty with right shape...
-    hxEst = xEst
-    hxTrue = xTrue
-    hxDR = xDR
-    hz = np.zeros((2, 1))
-
-    while SIM_TIME >= time:
-        time += dt
-        # Replace this with real data
-        u = calc_input()
-        xTrue, z, ud = simulate(xTrue, u, dt)
-        xDR = dead_reckon(xDR, ud, dt)
-        # xTrue, z, xDR, ud = observation(xTrue, xDR, u, dt)
-
-        xEst, PEst = ekf_estimation(xEst, PEst, z, ud, dt)
-
-        # store data history
-        hxEst = np.hstack((hxEst, xEst))
-        hxDR = np.hstack((hxDR, xDR))
-        hxTrue = np.hstack((hxTrue, xTrue))
-        hz = np.hstack((hz, z))
-
-        if show_animation:
-            plt.cla()
-            # for stopping simulation with the esc key.
-            plt.gcf().canvas.mpl_connect('key_release_event',
-                    lambda event: [exit(0) if event.key == 'escape' else None])
-            plt.plot(hz[0, :], hz[1, :], ".g")
-            plt.plot(hxTrue[0, :].flatten(),
-                     hxTrue[1, :].flatten(), "-b")
-            plt.plot(hxDR[0, :].flatten(),
-                     hxDR[1, :].flatten(), "-k")
-            plt.plot(hxEst[0, :].flatten(),
-                     hxEst[1, :].flatten(), "-r")
-            plot_covariance_ellipse(xEst, PEst)
-            plt.axis("equal")
-            plt.grid(True)
-            plt.pause(0.001)
-
-
 def read_simulation():
     dt = 0.1  # time tick [s]
     SIM_TIME = 50.0  # simulation time [s]
@@ -249,57 +195,6 @@ def read_simulation():
         xTrue, z, ud = simulate(xTrue, u, dt)
         time += dt
         yield time, dt, z, ud
-
-
-def track(stream):
-    #show_animation = True
-    show_animation = False
-    
-    # state vectors [x y yaw v]'
-    PEst = np.eye(4)
-    first = True
-
-    def plot():
-        plt.plot(hz[0, :], hz[1, :], ".g")
-        plt.plot(hxDR[0, :].flatten(),
-                    hxDR[1, :].flatten(), "-k")
-        plt.plot(hxEst[0, :].flatten(),
-                    hxEst[1, :].flatten(), "-r")
-        plot_covariance_ellipse(xEst, PEst)
-        plt.axis("equal")
-        plt.grid(True)
-
-    for _, dt, z, ud in stream:
-
-        # print("STREAM", dt, z, ud)
-
-        if first:
-            xDR = np.array([[z[0][0]], [z[1][0]], [0], [0]])
-            hxDR = xDR
-            xEst = xDR
-            hxEst = xEst
-            hz = z
-            first = False
-            continue
-
-        xDR = dead_reckon(xDR, ud, dt)
-        xEst, PEst = ekf_estimation(xEst, PEst, z, ud, dt)
-
-        # store history
-        hxEst = np.hstack((hxEst, xEst))
-        hxDR = np.hstack((hxDR, xDR))
-        hz = np.hstack((hz, z))
-
-        if show_animation:
-            plt.cla()
-            # for stopping simulation with the esc key.
-            plt.gcf().canvas.mpl_connect('key_release_event',
-                    lambda event: [exit(0) if event.key == 'escape' else None])
-            plot()
-            plt.pause(0)
-
-    plot()
-    plt.show()
 
 
 class History:
@@ -359,7 +254,7 @@ class ExtendedKalmanFilterTracker:
         plot_covariance_ellipse(self.state, self.P)
 
 
-def track2(stream, yaw=0, speed=0):
+def track(stream, yaw=0, speed=0):
     show_animation = True
     # show_animation = False
     
@@ -416,9 +311,4 @@ def track2(stream, yaw=0, speed=0):
 
 
 if __name__ == '__main__':
-    import sys
-    # simulation()
-    if len(sys.argv) > 1 and sys.argv[1] == "2":
-        track2(read_simulation())
-    else:
-        track(read_simulation())
+    track(read_simulation())
