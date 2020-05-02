@@ -62,6 +62,16 @@ class Power(RobotState):
         self.left_I = to_float(segments[3])
         self.right_I = to_float(segments[4])
 
+
+class Battery(RobotState):
+    def __init__(self, segments):
+        self.voltage = float(segments[1])
+
+    def __str__(self):
+        return f"Battery({self.voltage})"
+
+
+
 """
 float cmd_speed = 0.0f;    // forward revs / sec
 float cmd_rotation = 0.0f; // right from above
@@ -92,7 +102,7 @@ class Translate(RobotState):
     def __init__(self, speed: float):
         # argument is [-20..20]
         self.arg = speed
-        self.speed = 2 * int(speed) * 0.01 # m/s
+        self.speed = 1 * int(speed) * 0.01 # m/s
 
     def __str__(self):
         return f"Translate({self.speed})"
@@ -102,7 +112,7 @@ class Rotate(RobotState):
         # argument is [-20..20]
 
         self.arg = omega
-        self.omega = -2 * math.radians(omega)
+        self.omega = -1 * math.radians(omega)
 
     def __str__(self):
         return f"Rotate({self.omega})"

@@ -7,6 +7,7 @@ from typing import Optional
 import numpy as np
 import tracking
 import math
+import aiofiles
 
 
 def process(line: str) -> Optional[object]:
@@ -32,7 +33,13 @@ def process(line: str) -> Optional[object]:
         return None, None
 
 
-class LogParser(object):
+async def parse(filename):
+    async with aiofiles.open(filename) as f:
+        async for line in f:
+            yield process(line)
+
+
+class RobotStateFeed(object):
 
     def __init__(self, speed:float=0, omega:float=0):
         # Input (u) [speed omega]' from Speed, commands, or Revs.
@@ -58,111 +65,107 @@ class LogParser(object):
         self.revs: RobotState.Revs = None
         
         self.speed_time: datetime = None
-        self.speeds: RobotState.Speed = None
-        
+        self.speeds: RobotState.Speed = None        
 
-    def read(self, stream):
+    def update(self, tt, o):
         # each GPS cycle starts with RMC, Revs are on same cycle - could interpolate and get speed???
         # yield tracker input state on each RMC
-        for line in stream:
-            tt, o = process(line)
-            if tt is None: break
-            if isinstance(o, GPS.RMC):
-                u = GPS.UTM(o.lat, o.lon)
-                # print(o.time, o.lat, o.lon, o.alt)
-                deasting = u.easting - GPS.u0.easting
-                dnorthing = u.northing - GPS.u0.northing
-                z = np.array([[deasting], [dnorthing]])
+        if tt is None or o is None:
+            return
+        if isinstance(o, GPS.RMC):
+            u = GPS.UTM(o.lat, o.lon)
+            # print(o.time, o.lat, o.lon, o.alt)
+            deasting = u.easting - GPS.u0.easting
+            dnorthing = u.northing - GPS.u0.northing
+            z = np.array([[deasting], [dnorthing]])
 
-                speed, omega = self.speed1, self.omega1
-                #speed, omega = self.speed2, self.omega2
-                #speed, omega = self.speed3, self.omega3
-                
-                if self.rmc_time is None:
-                    dt = None
-                else:
-                    dt = (tt - self.rmc_time).total_seconds()
-                    dx, dy = u.diff(GPS.UTM(self.rmc.lat, self.rmc.lon))
-                    speed_gps = math.hypot(dx, dy) / dt
-                    #print("SPEEDGPS", dl/dt)
+            speed, omega = self.speed1, self.omega1
+            #speed, omega = self.speed2, self.omega2
+            #speed, omega = self.speed3, self.omega3
+            
+            if self.rmc_time is None:
+                dt = None
+            else:
+                dt = (tt - self.rmc_time).total_seconds()
+                #dx, dy = u.diff(GPS.UTM(self.rmc.lat, self.rmc.lon))
+                #speed_gps = math.hypot(dx, dy) / dt
+                #print("SPEEDGPS", dl/dt)
 
-                ud = np.array([[speed], [omega]])
-                # TODO: track time!?
-                # print("SPEEDOMEGA", speed, omega)
-                yield tt, dt, z, ud
-                self.rmc_time = tt
-                self.rmc = o
-                continue
+            ud = np.array([[speed], [omega]])
+            # TODO: track time!?
+            # print("SPEEDOMEGA", speed, omega)
+            self.rmc_time = tt
+            self.rmc = o
+            return tt, dt, z, ud
 
-            if isinstance(o, GPS.GGA):
-                if self.rmc:
-                    assert o.lat == self.rmc.lat
-                    assert o.lon == self.rmc.lon
-                continue
+        if isinstance(o, GPS.GGA):
+            if self.rmc:
+                assert o.lat == self.rmc.lat
+                assert o.lon == self.rmc.lon
+            return
 
-            if isinstance(o, RobotState.Revs):
-                #print("REVS", o)
-                # Will be lagging somewhat, up to a second - could extrapolate from speeds when yielding at RMC!?
-                if self.revs_time is not None:
-                    dt = (tt - self.revs_time).total_seconds()
-                    self.speed3, self.omega3 = RobotState.revs_delta2(self.revs, o, dt)                    
-                    #print("REVS", self.speed3, self.omega3, dt)
-                self.revs = o
-                self.revs_time = tt
-                continue
+        if isinstance(o, RobotState.Revs):
+            #print("REVS", o)
+            # Will be lagging somewhat, up to a second - could extrapolate from speeds when yielding at RMC!?
+            if self.revs_time is not None:
+                dt = (tt - self.revs_time).total_seconds()
+                self.speed3, self.omega3 = RobotState.revs_delta2(self.revs, o, dt)                    
+                #print("REVS", self.speed3, self.omega3, dt)
+            self.revs = o
+            self.revs_time = tt
+            return
 
-            if isinstance(o, RobotState.Speed):
-                # print("SPEEDS", o)
-                self.speeds_time = tt
-                self.speeds = o
-                self.speed2 = o.speed()
-                self.omega2 = o.omega()
-                #print("SPEEDS", self.speed2, self.omega2)
-                continue
+        if isinstance(o, RobotState.Speed):
+            # print("SPEEDS", o)
+            self.speeds_time = tt
+            self.speeds = o
+            self.speed2 = o.speed()
+            self.omega2 = o.omega()
+            #print("SPEEDS", self.speed2, self.omega2)
+            return
 
-            if isinstance(o, RobotState.Stop):
-                print("STOP")
-                self.speed1 = 0
-                self.omega1 = 0
-                continue
+        if isinstance(o, RobotState.Stop):
+            print("STOP")
+            self.speed1 = 0
+            self.omega1 = 0
+            return
 
-            if isinstance(o, RobotState.Translate):
-                print("TRANS", o)
-                self.translate = o
-                self.speed1 = o.speed
-                continue
+        if isinstance(o, RobotState.Translate):
+            print("TRANS", o)
+            self.translate = o
+            self.speed1 = o.speed
+            return
 
-            if isinstance(o, RobotState.Rotate):
-                print("ROT", o)
-                self.rotate = o
-                self.omega1 = o.omega
-                continue
+        if isinstance(o, RobotState.Rotate):
+            print("ROT", o)
+            self.rotate = o
+            self.omega1 = o.omega
+            return
 
 
-def test_read(stream):
-    p = LogParser()
-    for t, dt, z, u in p.read(stream):
-        print(t, dt, z, u)
-        pass
 
-def track(stream, yaw=0, speed=0):
-    p = LogParser()
-    tracking.track(p.read(stream), yaw=yaw, speed=speed)
+async def track_input(stream):
+    p = RobotStateFeed()
+    async for t, o in stream:
+        if t is not None and o is not None:
+            # t, dt, z, u or None
+            m = p.update(t, o)
+            if m is not None:
+                yield m
 
 
-def show(stream):
-    for line in stream:
-        tt, o = process(line)
-        if o:
-            print(tt, o)
+async def track(stream, yaw=0, speed=0):
+    # async for x in track_input(stream): print("track", repr(x))
+    await tracking.track(track_input(stream), yaw=yaw, speed=speed)
 
 
 if __name__ == "__main__":
+    import asyncio
     logging.basicConfig(
         level=logging.INFO,
         filename="record.log",
         format='%(asctime)s %(levelname)s %(message)s',
     )
     filename = sys.argv[1]
-    stream = open(filename)
-    track(stream, yaw=-0.80*math.pi)
+    stream = parse(filename)
+    asyncio.run(track(stream, yaw=-0.80*math.pi))
