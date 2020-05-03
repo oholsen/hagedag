@@ -1,0 +1,8 @@
+/.idea
+__pycache__
+*.pyc
+*.log
+*.log.*
+config.yaml
+/recording
+/data
