@@ -12,10 +12,19 @@ pi = pigpio.pi()
 pi.set_mode(14, pigpio.ALT5)  # TXD
 pi.set_mode(15, pigpio.ALT5)  # RXD
 
-cutter = servo.cutter
-# Depending on whether motor driver (ESC) is reversible or not
-# cut = cutter.power # non-reversible
-cut = cutter.amplitude  # reversible
+# brushed motor
+import cutter
+
+
+if 0:
+    # BLDC motor
+    cutter = servo.cutter
+    # Depending on whether motor driver (ESC) is reversible or not
+    # cut = cutter.power # non-reversible
+    cut = cutter.amplitude  # reversible
+
+
+
 
 
 async def open():
@@ -27,7 +36,8 @@ async def open():
     loop.add_signal_handler(signal.SIGALRM, lambda: asyncio.ensure_future(timeout(writer)))
 
     # Arm the motor controller by giving PWM signal. for both reversible and non-reversible motors:
-    cut(0)
+    # cut(0)
+    cutter.off()
 
     return reader, writer
 
@@ -38,8 +48,8 @@ def send(writer, msg):
     
 
 def stop(writer):
-    cut(0)
-    # cutter.off() # stop PWN
+    # cut(0)
+    cutter.off()
     send(writer, '.')
 
 
@@ -61,7 +71,13 @@ def handle(writer, data):
     if data.startswith('CUT'):
         try:
             cols = data.split()
-            cut(float(cols[1]))
+            speed = float(cols[1])
+            if speed > 0:
+                cutter.forward()
+            elif speed < 0:
+                cutter.backward()
+            else:
+                cutter.off()
         except:
             cutter.off()
             logger.error("Failed to handle CUT: %r", data, exc_info=1)
