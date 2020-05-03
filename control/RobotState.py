@@ -1,6 +1,7 @@
 from typing import Optional
 import json
 import math
+from abc import ABC
 
 
 WHEEL_BASE         = 0.3300 # m
@@ -27,10 +28,10 @@ def to_int(s: str) -> Optional[int]:
     except ValueError:
         return None
 
-class RobotState(object):
+class FromRobot(ABC):
     pass
 
-class Revs(RobotState):
+class Revs(FromRobot):
     def __init__(self, segments):
         self.right = to_float(segments[1]) * DIST_PER_WHEEL_REV
         self.left = to_float(segments[2]) * DIST_PER_WHEEL_REV
@@ -38,7 +39,7 @@ class Revs(RobotState):
     def __str__(self):
         return f"Revs({self.left}, {self.right})"
 
-class Speed(RobotState):
+class Speed(FromRobot):
     def __init__(self, segments):
         self.left = to_float(segments[1]) * DIST_PER_WHEEL_REV
         self.right = to_float(segments[2]) * DIST_PER_WHEEL_REV
@@ -55,7 +56,7 @@ class Speed(RobotState):
         return f"Speed({self.left}, {self.right})"
 
 
-class Power(RobotState):
+class Power(FromRobot):
     def __init__(self, segments):
         self.left = to_float(segments[1])
         self.right = to_float(segments[2])
@@ -63,7 +64,7 @@ class Power(RobotState):
         self.right_I = to_float(segments[4])
 
 
-class Battery(RobotState):
+class Battery(FromRobot):
     def __init__(self, segments):
         self.voltage = float(segments[1])
 
@@ -98,7 +99,7 @@ omega = -rotation # deg/s
 
 
 
-class Translate(RobotState):
+class Translate(FromRobot):
     def __init__(self, speed: float):
         # argument is [-20..20]
         self.arg = speed
@@ -107,7 +108,7 @@ class Translate(RobotState):
     def __str__(self):
         return f"Translate({self.speed})"
 
-class Rotate(RobotState):
+class Rotate(FromRobot):
     def __init__(self, omega: float):
         # argument is [-20..20]
 
@@ -117,7 +118,7 @@ class Rotate(RobotState):
     def __str__(self):
         return f"Rotate({self.omega})"
 
-class Stop(RobotState):
+class Stop(FromRobot):
     def __init__(self):
         pass
     def __str__(self):
@@ -143,7 +144,7 @@ def Control(segments):
         return Translate(float(segments[2]))
 
 
-class Ignore(RobotState):
+class Ignore(FromRobot):
     def __init__(self, segments):
         self.segments = segments
 
@@ -175,3 +176,39 @@ def revs_delta(dl: float, dr: float, dt: float):
     speed = 3 * 0.5 * (dl + dr) * DIST_PER_WHEEL_REV / dt # m/s
     omega = 2 * 0.5 * (dr - dl) / WHEEL_BASE / dt
     return speed, omega
+
+
+class RobotCommand(ABC):
+    pass
+
+class SpeedCommand(RobotCommand):
+    def __init__(self, speed: float):
+        self.speed = speed  # m/s
+    def __str__(self):
+        t = 100 * self.speed  # cm/s
+        return f"t {t:.2f}"
+
+class OmegaCommand(RobotCommand):
+    def __init__(self, omega: float):
+        self.omega = omega  # omega is rad/s in opposite direction to 
+    def __str__(self):
+        r = - math.degrees(self.omega)  # degrees/s
+        return f"r {r:.2f}"
+
+class StopCommand(RobotCommand):
+    def __str__(self):
+        return "."
+
+class ResetCommand(RobotCommand):
+    def __str__(self):
+        return "!"
+
+class HeartbeatCommand(RobotCommand):
+    def __str__(self):
+        return "heartbeat"
+
+class CutCommand(RobotCommand):
+    def __init__(self, speed: float):
+        self.speed = speed  # just < 0, 0, > 0 for now
+    def __str__(self):
+        return f"CUT {self.speed:.2f}"
