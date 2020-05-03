@@ -179,7 +179,7 @@ def plot_covariance_ellipse(xEst, PEst):  # pragma: no cover
     plt.plot(px, py, "--r")
 
 
-def read_simulation():
+async def read_simulation():
     dt = 0.1  # time tick [s]
     SIM_TIME = 50.0  # simulation time [s]
     time = 0.0
@@ -254,7 +254,7 @@ class ExtendedKalmanFilterTracker:
         plot_covariance_ellipse(self.state, self.P)
 
 
-def track(stream, yaw=0, speed=0):
+async def track(stream, yaw=0, speed=0):
     show_animation = True
     # show_animation = False
     
@@ -280,7 +280,9 @@ def track(stream, yaw=0, speed=0):
         plt.axis("equal")
         plt.grid(True)
 
-    for _, dt, z, ud in stream:
+    # async for o in stream: print("track", repr(o))
+
+    async for _, dt, z, ud in stream:
 
         # print("STREAM", dt, z, ud)
         if first:
@@ -311,4 +313,5 @@ def track(stream, yaw=0, speed=0):
 
 
 if __name__ == '__main__':
-    track(read_simulation())
+    import asyncio
+    asyncio.run(track(read_simulation()))

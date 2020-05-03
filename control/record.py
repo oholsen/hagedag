@@ -67,12 +67,17 @@ async def track(host, yaw=0, speed=0):
 
 
 if __name__ == "__main__":
-    import sys
-    logging.basicConfig(
-        level=logging.INFO,
-        #filename="record.log",
-        format='%(asctime)s %(levelname)s %(message)s',
-    )
+    import sys, yaml
+    try:
+        with open("record.yaml") as f:
+            logging.config.dictConfig(yaml.full_load(f))
+    except:
+        logging.info("Fallback logging")
+        logging.basicConfig(
+            level=logging.INFO,
+            #filename="record.log",
+            format='%(asctime)s %(levelname)s %(message)s',
+        )
     host = sys.argv[1]
     #asyncio.run(record(host))
     asyncio.run(track(host))

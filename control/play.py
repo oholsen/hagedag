@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 import numpy as np
 import tracking
-import math
+import math, cmath
 import aiofiles
 
 
@@ -77,7 +77,16 @@ class RobotStateFeed(object):
             # print(o.time, o.lat, o.lon, o.alt)
             deasting = u.easting - GPS.u0.easting
             dnorthing = u.northing - GPS.u0.northing
-            z = np.array([[deasting], [dnorthing]])
+            x = deasting
+            y = dnorthing
+            # Rotate by 20 degrees to align x,y coordinate system with garden.
+            # Also rotates the heading/yaw reference system!
+            # Y runs against house, X runs against hill
+            p = complex(x, y)
+            p = p * cmath.rect(1, math.radians(-20))
+            x = p.real
+            y = p.imag
+            z = np.array([[x], [y]])
 
             speed, omega = self.speed1, self.omega1
             #speed, omega = self.speed2, self.omega2
@@ -109,7 +118,8 @@ class RobotStateFeed(object):
             # Will be lagging somewhat, up to a second - could extrapolate from speeds when yielding at RMC!?
             if self.revs_time is not None:
                 dt = (tt - self.revs_time).total_seconds()
-                self.speed3, self.omega3 = RobotState.revs_delta2(self.revs, o, dt)                    
+                if dt > 0.1: # avoid divide by zero
+                    self.speed3, self.omega3 = RobotState.revs_delta2(self.revs, o, dt)                    
                 #print("REVS", self.speed3, self.omega3, dt)
             self.revs = o
             self.revs_time = tt
