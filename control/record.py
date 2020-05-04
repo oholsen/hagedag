@@ -2,22 +2,66 @@ import websockets
 import asyncio
 import aiostream
 import logging
+import time
 from datetime import datetime
 import GPS
 import RobotState
 import play
+import control
+
+logger = logging.getLogger(__name__)
 
 
-logger = logging.getLogger()
+async def controld_reader(websocket, incoming):
+    while True:
+        msg = await websocket.recv()
+        t = datetime.utcnow()
+        msg = msg.strip()
+        logger.debug("ROBOT %s", msg)
+        await incoming.put((t, RobotState.process(msg)))
+        # incoming.put_nowait((t, RobotState.process(msg)))
 
 
-async def from_robot(host):
+async def controld_writer(websocket, outgoing):
+    while True:
+        tm, m = await outgoing.get() # also time to make sure not outputting old messages
+        t = datetime.utcnow()
+        if (t - tm).total_seconds() > 3:
+            logger.warning("Old controld message %s %s", tm, m)
+            continue
+        m = str(m) 
+        logger.debug("Sending controld: %s", m)
+        await websocket.send(m + "\n")
+        outgoing.task_done()
+
+
+async def controld_connection(host, incoming, outgoing):
     uri = f"ws://{host}:8000/control"
     while True:
         try:
-            logging.info("Connecting to robot")
+            logger.info("Connecting to controld")
             async with websockets.connect(uri) as websocket:
-                logger.info("Connected to robot")
+                logger.info("Connected to controld")
+                consumer_task = asyncio.create_task(controld_reader(websocket, incoming))
+                producer_task = asyncio.create_task(controld_writer(websocket, outgoing))
+                _, pending = await asyncio.wait(
+                    [consumer_task, producer_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in pending:
+                    task.cancel()                
+        except:
+            logger.error("Controld connection failed", exc_info=True)
+        await asyncio.sleep(1)
+
+
+async def from_controld(host):
+    uri = f"ws://{host}:8000/control"
+    while True:
+        try:
+            logger.info("Connecting to controld")
+            async with websockets.connect(uri) as websocket:
+                logger.info("Connected to controld")
                 while True:
                     # await websocket.send("Hello world!")
                     msg = await websocket.recv()
@@ -25,15 +69,29 @@ async def from_robot(host):
                     logger.info("ROBOT %s", msg)
                     yield datetime.utcnow(), RobotState.process(msg)
         except:
-            logger.error("From robot failed", exc_info=True)
+            logger.error("From controld failed", exc_info=True)
         await asyncio.sleep(1)
 
+
+async def gps_consumer(reader, incoming):
+    while True:
+        try:
+            msg = await reader.readline()
+            t = datetime.utcnow()
+            msg = msg.decode().strip()
+            logger.debug("GPS %s", msg)
+            msg = GPS.process(msg)
+            if msg:
+                await incoming.put((t, msg))
+        except:
+            logger.error("GPS consumer failed", exc_info=True)
+            raise
 
 async def from_gps(host):
     while True:
         try:
             # TODO: use write too - or in another connection???
-            logging.info("Connecting to GPS")
+            logger.info("Connecting to GPS")
             reader, _ = await asyncio.open_connection(host, 5000)
             logger.info("Connected to GPS")
             while True:
@@ -46,8 +104,61 @@ async def from_gps(host):
         await asyncio.sleep(1)
 
 
+async def gps_connection(host, incoming):
+    while True:
+        try:
+            logger.info("Connecting to GPS")
+            reader, _ = await asyncio.open_connection(host, 5000)
+            logger.info("Connected to GPS")
+            # await asyncio.create_task(gps_consumer(reader, incoming))
+            while True:
+                try:
+                    msg = await reader.readline()
+                    t = datetime.utcnow()
+                    msg = msg.decode().strip()
+                    logger.debug("GPS %s", msg)
+                    msg = GPS.process(msg)
+                    if msg: 
+                        await incoming.put((t, msg))
+                except:
+                    logger.error("GPS consumer failed", exc_info=True)
+                    raise
+
+        except:
+            logger.error("From GPS failed", exc_info=True)
+        await asyncio.sleep(1)
+
+
+async def incoming_consumer(incoming):
+    while True:
+        t, m = await incoming.get()
+        print("INCOMING", t, m)
+        incoming.task_done()
+
+
+async def heartbeat(outgoing):
+    while True:
+        await asyncio.sleep(2)
+        t = datetime.utcnow()
+        m = RobotState.HeartbeatCommand()
+        await outgoing.put((t, m))
+
+
+# also serves to record - without the outgoing producer
+async def test_streamq(host):
+    incoming = asyncio.Queue()
+    outgoing = asyncio.Queue()
+    ti = asyncio.create_task(incoming_consumer(incoming))
+    to = asyncio.create_task(outgoing_producer(outgoing))
+    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
+    tg = asyncio.create_task(gps_connection(host, incoming))
+    await asyncio.gather(tc, tg, ti, to)
+
+# could take stream of controld commands as input!?
+# creat a task in from_controld that consumes the stream
+# but can we consume from different tasks???
 async def stream(host):
-    async with aiostream.stream.merge(from_gps(host), from_robot(host)).stream() as streamer:
+    async with aiostream.stream.merge(from_gps(host), from_controld(host)).stream() as streamer:
         async for m in streamer:
             yield m
 
@@ -62,22 +173,71 @@ async def record(host):
         logger.error("Record failed", exc_info=1)
 
 
+
+async def incoming_generator(incoming):
+    while True:
+        t, m = await incoming.get()
+        yield t, m
+        incoming.task_done()
+
+
 async def track(host, yaw=0, speed=0):
     await play.track(stream(host), yaw, speed)
 
 
+async def track2(host, yaw=0, speed=0):
+    incoming = asyncio.Queue()
+    outgoing = asyncio.Queue()
+    # ti = asyncio.create_task(incoming_consumer(incoming))
+    # to = asyncio.create_task(heartbeat(outgoing))
+    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
+    tg = asyncio.create_task(gps_connection(host, incoming))
+    # await asyncio.gather(tc, tg, ti, to)
+    # incoming -> track -> control -> outgoing
+    async for s in play.track(incoming_generator(incoming), yaw, speed):
+        print("track2", s)
+
+
+
+async def line_control(host, yaw=0, speed=0):
+    incoming = asyncio.Queue()
+    outgoing = asyncio.Queue()
+    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
+    tg = asyncio.create_task(gps_connection(host, incoming))
+    to = asyncio.create_task(heartbeat(outgoing))
+
+    # TODO: wait for first observation to get x0, y0
+    x0 = 0
+    y0 = -3
+
+    y = -3
+    xl = -2
+    xr = 4
+    _control = control.CompositeControl(control.LineTest(x0, y0, xl, xr, y))
+    # plot = Plot()
+
+    # incoming -> track -> control -> outgoing
+    async for state in play.track(incoming_generator(incoming), yaw, speed):
+        t = time.time()
+        # plot.update(state)
+        speed, omega = _control.update(t, state)
+        if speed is not None:
+            t = datetime.utcnow()
+            m = RobotState.SpeedCommand(speed)
+            await outgoing.put((t, m))
+        if omega is not None:
+            t = datetime.utcnow()
+            m = RobotState.OmegaCommand(omega)
+            await outgoing.put((t, m))
+
+
 if __name__ == "__main__":
     import sys, yaml
-    try:
-        with open("record.yaml") as f:
-            logging.config.dictConfig(yaml.full_load(f))
-    except:
-        logging.info("Fallback logging")
-        logging.basicConfig(
-            level=logging.INFO,
-            #filename="record.log",
-            format='%(asctime)s %(levelname)s %(message)s',
-        )
+    import logging.config
+    with open("record.yaml") as f:
+        logging.config.dictConfig(yaml.full_load(f))
     host = sys.argv[1]
     #asyncio.run(record(host))
-    asyncio.run(track(host))
+    #asyncio.run(track(host))
+    #asyncio.run(track2(host))
+    asyncio.run(line_control(host))

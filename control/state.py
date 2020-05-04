@@ -10,3 +10,8 @@ class State:
     theta: float
     speed: float
     # TODO: from/to array
+
+
+def from_array(s) -> State:
+    s = s.flatten()
+    return State(*s)

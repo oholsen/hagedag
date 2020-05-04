@@ -16,78 +16,39 @@ from abc import ABC
 
 log = logging.getLogger(__name__)
 
-class ControlTime(ABC):
-    def tick(self) -> None:
-        pass
-    def time(self) -> float:
-        pass
-    def dt(self) -> float:
-        pass
-
-
-class RealTime(ControlTime):
-    def __init__(self):
-        self.t = time.time()
-        self._last_dt = None
-
-    def tick(self) -> None:
-        t = time.time()
-        self._last_dt = t - self.t
-        self.t = t
-
-    def time(self):
-        return self.t
-
-    def dt(self) -> float:
-        return self._last_dt
-
-
-class SimulatedTime(ControlTime):
-    def __init__(self, dt: float):        
-        self.t = 0
-        self._dt = dt
-
-    def tick(self) -> None:
-        self.t += self._dt
-
-    def time(self):
-        return self.t
-
-    def dt(self) -> float:
-        return self._dt
-
-
-control_time = SimulatedTime(0.1)
-
 
 class Control(ABC):
 
-    def update(self, state): # -> (speed, omega)
+    def update(self, t: float, state): # -> (speed, omega)
         # state vectors [x y yaw v]'
         return None, None
 
-    def end(self, state) -> bool:
+    def end(self, t: float, state) -> bool:
         return False
 
 
-# Feedback can be incremental, eg gps and robot state out of synch - don't support that
-# TODO: async sequence of states instead of get_state
-# but want to reuse same state for end to init the next control.
-async def control_loop(controls, get_state, update):
-    def report():
-        #print(control_time.time(), "STATE", state.x, state.y, state.theta, state.speed)
-        pass
-    state = await get_state()
-    report()
-    for control in controls:
-        log.info("%s Starting %s", control_time.time(), control)
-        while not control.end(state):
-            control_time.tick()
-            speed, omega = control.update(state)
-            # print(control_time.time(), "UPDATE", speed, omega)
-            update(speed, omega)
-            state = await get_state()
-            report()
+class CompositeControl(Control):
+
+    def __init__(self, controls):
+        self.controls = iter(controls)
+        self.control = next(self.controls)
+        log.info("Starting %s", self.control)
+
+    def update(self, t: float, state): # -> (speed, omega)
+        # state vectors [x y yaw v]'
+        assert self.controls is not None
+        log.debug("Composite update %s %f %s", self.control, t, state)
+        while self.control.end(t, state):
+            try:
+                self.control = next(self.controls)
+            except StopAsyncIteration:
+                self.control = None
+                return None, None
+            log.info("Starting %s %s", t, self.control)
+        return self.control.update(t, state)
+
+    def end(self, t: float, state) -> bool:
+        return self.control is None
 
 
 def norm_angle(a: float) -> float:
@@ -106,6 +67,7 @@ class HLineControl(Control):
         self.y = y
         self.right = right
         self.end_x = end_x
+        self.t_last = None
 
     def __str__(self):
         return f"HLineControl({self.right},{self.end_x})"
@@ -113,7 +75,7 @@ class HLineControl(Control):
     def reset(self):
         self.pid.clear()
 
-    def update(self, state: State): # -> (speed, omega)
+    def update(self, t: float, state: State): # -> (speed, omega)
         # state vectors [x y yaw v]'
         d = self.y - state.y
         # angle is 90 for large d
@@ -124,24 +86,27 @@ class HLineControl(Control):
             theta = pi - theta
         dtheta = norm_angle(theta - state.theta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
-        speed = 0.5 * math.exp(-abs(5*dtheta)**2)
+        speed = 0.2 * math.exp(-abs(5*dtheta)**2)
         # relax towards desired _theta
-        omega = dtheta # / 2
+        omega = 0.2 * dtheta
         domega = 0
-        if False and abs(d) < 0.4:
+
+        
+        if False and self.t_last is not None and abs(d) < 0.4:
             # only use PID if near the line
             # TODO: remove this discontinuity
-            domega = -self.pid.update(d, control_time.dt())
+            domega = -self.pid.update(d, t - self.t_last)
             if self.right:
                 domega = -domega
         else:
             # TODO: reset PID? or update PID without using result?
             pass
-        #print(control_time.time(), d, theta, state.theta, dtheta, speed, domega)
+        #print(t, d, theta, state.theta, dtheta, speed, domega)
+        self.t_last = t
         return speed, omega + domega
 
 
-    def end(self, state: State) -> bool:
+    def end(self, t: float, state: State) -> bool:
         return self.right == (state.x >= self.end_x)
 
 
@@ -158,15 +123,15 @@ class TimeControl(Control):
         return f"TimeControl({self.time})"
 
 
-    def update(self, state: State): # -> (speed, omega)
+    def update(self, t: float, state: State): # -> (speed, omega)
         if self.first:
             self.first = False
-            self.t0 = control_time.time()
+            self.t0 = t
             return self.speed, self.omega
         return None, None
 
-    def end(self, state: State) -> bool:
-        return self.t0 is not None and control_time.t >= self.t0 + self.time
+    def end(self, t: float, state: State) -> bool:
+        return self.t0 is not None and t >= self.t0 + self.time
 
 
 def start_arc(radius, speed, direction):
@@ -188,13 +153,13 @@ class ArcControl(Control):
     def __str__(self):
         return f"ArcControl({self.end_theta})"
 
-    def update(self, state: State): # -> (speed, omega)
+    def update(self, t: float, state: State): # -> (speed, omega)
         if self.first:
             self.first = False
             return self.speed, self.omega
         return None, None
 
-    def end(self, state: State) -> bool:
+    def end(self, t: float, state: State) -> bool:
         # stop at first zero crossing, but not a random jump +-pi
         dtheta = norm_angle(state.theta - self.end_theta)
         if self.dtheta_last is None:
@@ -223,8 +188,8 @@ swap direction
 def LineTest(x, y, xl, xr, y0):
     right = x < (xl + xr) / 2    
     end_x = {True: xr, False: xl}
-    speed_max = 0.5
-    omega_max = 0.5
+    speed_max = 0.20
+    omega_max = 0.20
     while True:
         yield HLineControl(y0, right, end_x[right])
         yield TimeControl(0, omega_max * random.uniform(-1, 1), 3)
@@ -235,44 +200,42 @@ def LineTest(x, y, xl, xr, y0):
 
 async def simulate():
     model = RobotModel(State(1, 1, 0, 0))
-    controls = LineTest(1, 1, -5, 5, 0)
+    control = CompositeControl(LineTest(1, 1, -5, 5, 0))
     plot = Plot()
+    dt = 0.1
+    t = 0.0
+    state = model.get_state()
+    plot.update(state)
+    while not control.end(t, state):
 
-    async def get_state():
-        return model.get_state()
-
-    def update(speed, omega):
+        t += dt
+        model.update(dt)
+        state = model.get_state()
+        plot.update(state)
+        
+        speed, omega = control.update(t, state)
         if speed is not None:
             model.set_speed_omega(speed, omega)
-        model.update(control_time.dt())
-        plot.update(model.get_state())
-
-    await control_loop(controls, get_state, update)
 
 
-async def real():
-    model = RobotModel(State(1, 1, 0, 0))
-    controls = LineTest(1, 1, -5, 5, 0)
-    plot = Plot()
 
-    async def get_state():
-        return model.get_state()
+"""
 
-    def update(speed, omega):
-        if speed is not None:
-            model.set_speed_omega(speed, omega)
-        model.update(control_time.dt())
-        plot.update(model.get_state())
+M: t1, u -> t2, u, z
+E: t2, u, z -> t2, s_est
+C: t2, s_est -> t2, u (t2 goes to M as t1)
 
-    await asyncio.gather(control_loop(controls, get_state, update))
+Observation delay in u
 
+stream u, z from "record"
+stream s_est from "tracking"
+stream u from "control"
+
+"""
 
 
 def main():
     asyncio.run(simulate())
-
-
-
 
 
 if __name__ == "__main__":

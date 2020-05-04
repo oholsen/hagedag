@@ -2,14 +2,15 @@ version: 1
 disable_existing_loggers: False
 handlers:
   console:
+    level: INFO
     class: logging.StreamHandler
     formatter: default
     stream: ext://sys.stdout
   file:
+    level: DEBUG
     class: logging.handlers.TimedRotatingFileHandler
     formatter: default
     filename: data/record.log
-    # maxBytes: 1024
     when: midnight
     backupCount: 10
 formatters:
@@ -17,10 +18,10 @@ formatters:
     format: '%(asctime)s.%(msecs)03d %(levelname)-8s %(name)-6s %(message)s'
     datefmt: '%Y-%m-%d %H:%M:%S'
 root:
-  level: INFO
+  level: DEBUG
   handlers: [console, file]
 loggers:
   main:
     level: DEBUG
-  websocket:
-    level: DEBUG
+  websockets:
+    level: INFO

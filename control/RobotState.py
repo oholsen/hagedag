@@ -130,6 +130,9 @@ class Reset(Stop):
     def __str__(self):
         return "Reset()"
 
+class Heartbeat(FromRobot):
+    def __str__(self):
+        return "Heartbeat()"
 
 def Control(segments):
     # print("Control", segments)
@@ -147,6 +150,8 @@ def Control(segments):
 class Ignore(FromRobot):
     def __init__(self, segments):
         self.segments = segments
+    def __str__(self):
+        return f"Ignore({self.segments})"
 
 
 _sentences = {
@@ -154,6 +159,7 @@ _sentences = {
     "Speed": Speed,
     "Power": Power,
     "Control": Control,
+    # "heartbeat": Heartbeat,
 }
 
 
@@ -161,7 +167,7 @@ def process(line):
     line = line.strip()
     segments = line.split()
     cmd = segments[0]
-    sentence = _sentences.get(cmd) # , Ignore)
+    sentence = _sentences.get(cmd, Ignore)
     if sentence:
         return sentence(segments)
 

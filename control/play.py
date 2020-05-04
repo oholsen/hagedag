@@ -8,6 +8,9 @@ import numpy as np
 import tracking
 import math, cmath
 import aiofiles
+import state
+
+logger = logging.getLogger(__name__)
 
 
 def process(line: str) -> Optional[object]:
@@ -135,19 +138,19 @@ class RobotStateFeed(object):
             return
 
         if isinstance(o, RobotState.Stop):
-            print("STOP")
+            # print("STOP")
             self.speed1 = 0
             self.omega1 = 0
             return
 
         if isinstance(o, RobotState.Translate):
-            print("TRANS", o)
+            # print("TRANS", o)
             self.translate = o
             self.speed1 = o.speed
             return
 
         if isinstance(o, RobotState.Rotate):
-            print("ROT", o)
+            # print("ROT", o)
             self.rotate = o
             self.omega1 = o.omega
             return
@@ -157,6 +160,7 @@ class RobotStateFeed(object):
 async def track_input(stream):
     p = RobotStateFeed()
     async for t, o in stream:
+        # logger.debug("track input {%s} {%s}", t, o)
         if t is not None and o is not None:
             # t, dt, z, u or None
             m = p.update(t, o)
@@ -166,7 +170,9 @@ async def track_input(stream):
 
 async def track(stream, yaw=0, speed=0):
     # async for x in track_input(stream): print("track", repr(x))
-    await tracking.track(track_input(stream), yaw=yaw, speed=speed)
+    # return await tracking.track(track_input(stream), yaw=yaw, speed=speed)
+    async for s in tracking.track(track_input(stream), yaw=yaw, speed=speed):
+        yield state.from_array(s)
 
 
 if __name__ == "__main__":
@@ -178,4 +184,4 @@ if __name__ == "__main__":
     )
     filename = sys.argv[1]
     stream = parse(filename)
-    asyncio.run(track(stream, yaw=-0.80*math.pi))
+    asyncio.run(track(stream, yaw=-0.80*math.pi - math.radians(20)))

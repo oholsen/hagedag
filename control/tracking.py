@@ -262,8 +262,12 @@ async def track(stream, yaw=0, speed=0):
     first = True
 
     def plot():
+        # plt.gca().invert_xaxis()
+        # plt.gca().invert_yaxis()
+        plt.axis("equal")
+        plt.grid(True)
         hz.plot(".-g")
-        hdr.plot_flatten("-k")            
+        # hdr.plot_flatten("-k")            
         hekf.plot_flatten("-r")
         ekf.plot_covariance()
 
@@ -277,14 +281,12 @@ async def track(stream, yaw=0, speed=0):
         a = 1  # * speed
         plt.arrow(x, y, a * math.cos(yaw), a * math.sin(yaw))
 
-        plt.axis("equal")
-        plt.grid(True)
 
     # async for o in stream: print("track", repr(o))
 
     async for _, dt, z, ud in stream:
 
-        # print("STREAM", dt, z, ud)
+        # print("TRACK STREAM", dt, z, ud)
         if first:
             # init state with the first observation, using yaw, v = 0
             s = np.array([[z[0][0]], [z[1][0]], [yaw], [speed]])
@@ -294,11 +296,14 @@ async def track(stream, yaw=0, speed=0):
             hekf = History(s)
             hz = History(z)
             first = False
+            yield s
             continue
 
         hdr.add(dr.update(z, ud, dt))
-        hekf.add(ekf.update(z, ud, dt))
+        s = ekf.update(z, ud, dt)
+        hekf.add(s)
         hz.add(z)
+        yield s
 
         if show_animation:
             plt.cla()
