@@ -32,11 +32,11 @@ client.on('data', (data) => {
 });
 
 client.on('close', () => {
-  console.log('client close');
+  console.log('NtripClient closed');
 });
 
 client.on('error', (err) => {
-  console.log(err);
+  console.log("NtripClient error:", err);
 });
 
 client.run();
@@ -65,13 +65,12 @@ server.on('connection', function(socket) {
   });
 
   socket.on('error', function(err) {
-    // TODO: close socket and remove from connections
-    console.log(`Error: ${err}`);
+    console.log("Connection error:", err);
+    connections.delete(socket);
   });
 });
 
 
 function broadcast(msg) {
-  // TODO: close socket if writing fails
   connections.forEach(socket => socket.write(msg));
 };
