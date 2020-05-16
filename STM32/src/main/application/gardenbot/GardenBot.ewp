@@ -1126,7 +1126,4 @@
             <name>$PROJ_DIR$\..\lib\pidcontrol.h</name>
         </file>
     </group>
-    <file>
-        <name>$PROJ_DIR$\..\..\compiler.h</name>
-    </file>
 </project>

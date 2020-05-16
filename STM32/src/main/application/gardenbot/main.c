@@ -451,7 +451,7 @@ void _control_from_uart(void)
             updates = 0;
 
             // Distance travelled - in ticks
-            snprintf(buf, sizeof(buf), "Revs %.2f %.2f\n", motor_A.encoder.sum / TICKS_PER_REV, motor_B.encoder.sum / TICKS_PER_REV);
+            snprintf(buf, sizeof(buf), "Revs %.2f %.2f\n", motor_L.encoder.sum / TICKS_PER_REV, motor_R.encoder.sum / TICKS_PER_REV);
             usart_tx_string(USART1, buf);
             
             // Speed in revs/sec - could use cm/sec
