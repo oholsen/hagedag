@@ -2,8 +2,6 @@ import pigpio
 
 pi = pigpio.pi()
 
-CutterPin = 23
-
 
 class Servo(object):
         def __init__(self, pin, pulseWidthRange = 500):
@@ -24,21 +22,9 @@ class Servo(object):
                 pi.set_servo_pulsewidth(self.pin, pw)
 
         def power(self, power):
-                # power is 0 to 100 percent
+                # power is 0 to 100 percent across full range, 0 is min, 100 is max
                 # mid-point is 1.5ms pulse
+                assert abs(power) <= 100
                 power = max(min(power / 100, 1), 0)
                 pw = 1500 + self.pulseWidthRange * (2 * power - 1)
                 pi.set_servo_pulsewidth(self.pin, pw)
-
-
-cutter = Servo(CutterPin)
-
-
-if __name__ == '__main__':
-        import sys
-        try:
-                cutter.power(float(sys.argv[1]))
-        except:
-                cutter.off()
-                raise
-

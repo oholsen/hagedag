@@ -12,20 +12,8 @@ pi = pigpio.pi()
 pi.set_mode(14, pigpio.ALT5)  # TXD
 pi.set_mode(15, pigpio.ALT5)  # RXD
 
-# brushed motor
-import cutter
-
-
-if 0:
-    # BLDC motor
-    cutter = servo.cutter
-    # Depending on whether motor driver (ESC) is reversible or not
-    # cut = cutter.power # non-reversible
-    cut = cutter.amplitude  # reversible
-
-
-
-
+from cutter import BrushlessCutter
+cutter = BrushlessCutter()
 
 async def open():
 
@@ -35,9 +23,9 @@ async def open():
     loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGALRM, lambda: asyncio.ensure_future(timeout(writer)))
 
-    # Arm the motor controller by giving PWM signal. for both reversible and non-reversible motors:
-    # cut(0)
-    cutter.off()
+    # Arm the motor controller by giving PWM signal. 
+    # For both reversible and non-reversible motors:
+    cutter.stop()
 
     return reader, writer
 
@@ -48,14 +36,13 @@ def send(writer, msg):
     
 
 def stop(writer):
-    # cut(0)
-    cutter.off()
     send(writer, '.')
 
 
 def timeout(writer):
     # also heartbeat timeout inside STM
     logger.info('Heartbeat timeout')
+    cutter.stop()
     stop(writer)
 
 
@@ -65,19 +52,14 @@ def handle(writer, data):
     logger.debug("handle %r", data)
 
     if data == 'STOP':
-        stop()
+        stop(writer)
         return
 
     if data.startswith('CUT'):
         try:
             cols = data.split()
-            speed = float(cols[1])
-            if speed > 0:
-                cutter.forward()
-            elif speed < 0:
-                cutter.backward()
-            else:
-                cutter.off()
+            power = float(cols[1])
+            cutter.power(power)
         except:
             cutter.off()
             logger.error("Failed to handle CUT: %r", data, exc_info=1)
@@ -90,8 +72,9 @@ def handle(writer, data):
         # reset timer, pass on to STM
         signal.alarm(5)  # seconds
     elif data == '!':
-        cut(0)
-    elif data == '.':
         cutter.off()
+    elif data == '.':
+        pass
+        # cutter.off()
 
     send(writer, data)
