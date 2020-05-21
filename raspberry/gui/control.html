@@ -196,10 +196,22 @@
           const message = e.data;
           console.log("Websocket message:", message);
           debug(message);
+          
           if (message.startsWith("Battery ")) {
             let vbat = message.split(" ")[1];
             $('#battery').text(vbat);
+            return;
           }
+
+          if (message.startsWith("IV ")) {
+            let cols = message.split(" ");
+            $('#i_cutter').text(cols[1]);
+            $('#i_wheels').text(cols[2]);
+            $('#i_5V').text(cols[3]);
+            $('#v_bat').text(cols[4]);
+            return;
+          }
+
         };
         
         s.onerror = function (e) {
@@ -246,20 +258,20 @@
     <div style="margin-top: 10px;">
     <button id="reset">Reset</button>
     <button id="cut">Cut</button>
-    <input type="text" id="cutspeed" value="25" style="width: 2em">
+    <input type="text" id="cutspeed" value="15" style="width: 2em">
     <button id="cut0">Cut0</button>
     <input type="checkbox" id="heartbeat">Heartbeat
     </div>
 
-    <div style="margin-top: 10px;">
-      <label for="battery">Battery:</label>
-      <span id="battery">N/A</span>
-    </div>
-
-    <div style="margin-top: 10px;">
-      <label for="websocket">Websocket:</label>
-      <span id="websocket">Closed</span>
-    </div>
+    <!-- STATUS -->
+    <table id="status" style="margin-top: 10px;">
+      <tr><td>Battery</td><td id="battery"></td><td>V</td></tr>
+      <tr><td>Battery</td><td id="v_bat"></td><td>V</td></tr>
+      <tr><td>Wheels</td><td id="i_wheels"></td><td>A</td></tr>
+      <tr><td>Cutter</td><td id="i_cutter"></td><td>A</td></tr>
+      <tr><td>5V</td><td id="i_5V"></td><td>A</td></tr>
+      <tr><td>Websocket</td><td id="websocket">Closed</td><td></td></tr>
+    </table>
 
   </div>
 

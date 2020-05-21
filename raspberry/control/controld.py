@@ -2,6 +2,7 @@
 import websockets
 import asyncio
 import logging
+import current
 
 '''
 A WebSocket end-point for the control of the robot, controlling the RPi and forwarding to the STM via a serial port.
@@ -37,6 +38,14 @@ async def read_control(reader):
         await broadcast(line)
 
 
+async def measure_current():
+    while True:
+        await asyncio.sleep(1)
+        i1, i2, i3, v_bat = current.measure()
+        msg = f"IV {i1:.3f} {i2:.3f} {i3:.3f} {v_bat:.3f}\n"
+        await broadcast(msg)
+
+
 async def handle(ws, path, writer):
     # print(dir(ws))
     logger.info("Connection from %r %r", ws, path)
@@ -67,6 +76,7 @@ async def main():
         reader, writer = await control.open()
 
     asyncio.ensure_future(read_control(reader))
+    asyncio.ensure_future(measure_current())
 
     headers = websockets.http.Headers()
     headers["Access-Control-Allow-Origin"] = "*"

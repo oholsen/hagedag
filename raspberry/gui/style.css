@@ -2,27 +2,13 @@ body {
 	font-family: Arial, Helvetica, sans-serif;
 }
 
-table {
-	font-size: 1em;
+table#status tr td {
+	font-size: 10px;
 }
 
 .ui-draggable, .ui-droppable {
 	background-position: top;
 }
-/*
-#speedSlider {
-	width: 1.5em;
-}
-
-#speedSlider .ui-slider-handle {
-	width: 2em;
-}
-
-#turnSlider {
-	height: 1.5em;
-}
-*/
-
 
 .ui-button { 
   text-align: center;

@@ -105,7 +105,7 @@ class INA3221():
 
 
     def _getShuntVoltage_raw(self, channel):
-    	# ets the raw shunt voltage (16-bit signed integer, so +-32767)	
+    	# Gets the raw shunt voltage (16-bit signed integer, so +-32767)	
         value = self._read_word(INA3221_REG_SHUNTVOLTAGE_1 + (channel-1)*2)
         if value > 32767:
             value -= 65536
