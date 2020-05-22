@@ -80,6 +80,7 @@ class VTG(GPS):
 
 class RMC(GPS):
     def __init__(self, segments):
+        assert len(segments) == 14
         self.time = parse_time(segments[1])
         self.status = segments[2]
         self.lat = parse_lat(segments[3], segments[4])
@@ -87,7 +88,10 @@ class RMC(GPS):
         self.speed_knots = to_float(segments[8])
         self.course_over_ground = to_float(segments[9])
         self.date = segments[9] # "ddmmyy"
-        self.mode = segments[10] # "R" for RTK
+        self.mode = segments[12] # "R" for RTK
+
+    def has_rtk(self):
+        return self.mode == "R"
 
 
 class Ignore(GPS):

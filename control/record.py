@@ -231,6 +231,27 @@ async def line_control(host, yaw=0, speed=0):
             await outgoing.put((t, m))
 
 
+async def fencebump_control(host, yaw=0, speed=0):
+    from fencebump import bump2, load
+
+    fence = load("garden-test.yaml")
+    stop = asyncio.Event()
+    incoming = asyncio.Queue()
+    outgoing = asyncio.Queue()
+    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
+    tg = asyncio.create_task(gps_connection(host, incoming))
+    to = asyncio.create_task(heartbeat(outgoing))
+
+    async def send(cmd):
+        logger.info("Cmd %s", cmd)
+        await outgoing.put((datetime.utcnow(), cmd))
+
+    # incoming -> track -> control -> outgoing
+    async for state in play.track(incoming_generator(incoming), yaw, speed):
+        # logger.info("bump state %s", state)
+        await bump2(state.x, state.y, fence, send, stop)
+
+
 if __name__ == "__main__":
     import sys, yaml
     import logging.config
@@ -240,4 +261,6 @@ if __name__ == "__main__":
     #asyncio.run(record(host))
     #asyncio.run(track(host))
     #asyncio.run(track2(host))
-    asyncio.run(line_control(host))
+    #asyncio.run(line_control(host))
+    asyncio.run(fencebump_control(host))
+    # TODO: plug simulator into outgoing -> incoming

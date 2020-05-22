@@ -70,12 +70,16 @@ class RobotStateFeed(object):
         self.speed_time: datetime = None
         self.speeds: RobotState.Speed = None        
 
-    def update(self, tt, o):
+    def update(self, tt, o): # -> Optional[Tuple[t,dt,z,u]]
         # each GPS cycle starts with RMC, Revs are on same cycle - could interpolate and get speed???
         # yield tracker input state on each RMC
+        # logger.debug("UPDATE %s %r", tt, o)
         if tt is None or o is None:
             return
         if isinstance(o, GPS.RMC):
+            # logger.debug("RMC %s %s", o.mode, o.has_rtk())
+            if not o.has_rtk():
+                return
             u = GPS.UTM(o.lat, o.lon)
             # print(o.time, o.lat, o.lon, o.alt)
             deasting = u.easting - GPS.u0.easting

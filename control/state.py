@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-
+import numpy as np
 
 @dataclass
 class State:
@@ -9,7 +9,9 @@ class State:
     y: float
     theta: float
     speed: float
-    # TODO: from/to array
+
+    def to_array(self):
+        return np.array([[self.x], [self.y], [self.theta], [self.speed]])
 
 
 def from_array(s) -> State:
