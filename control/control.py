@@ -110,6 +110,41 @@ class HLineControl(Control):
         return self.right == (state.x >= self.end_x)
 
 
+
+
+class PointControl(Control):
+
+    def __init__(self, x: float, y: float, dist: float):
+        self.x = x
+        self.y = y
+        self.dist = dist
+
+    def __str__(self):
+        return f"PointControl({self.x},{self.y})"
+
+    def update(self, t: float, state: State): # -> (speed, omega)
+        # state vectors [x y yaw v]'
+        dx = self.x - state.x
+        dy = self.y - state.y
+        theta = math.atan2(dy, dx)
+        dtheta = norm_angle(theta - state.theta)
+        print("pos", state.x, state.y)
+        print("theta", theta, dtheta)
+        # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
+        speed = 0.2 * math.exp(-abs(5*dtheta)**2)
+        # relax towards desired _theta
+        omega = 0.2 * dtheta
+        print("cmd", speed, omega)
+        return speed, omega
+
+    def end(self, t: float, state: State) -> bool:
+        dx = self.x - state.x
+        dy = self.y - state.y
+        d = math.hypot(dx, dy)
+        print("distance", d, self.dist)
+        return d < self.dist
+
+
 class TimeControl(Control):
 
     def __init__(self, speed: float, omega: float, time: float):
@@ -198,9 +233,29 @@ def LineTest(x, y, xl, xr, y0):
         right = not right
 
 
-async def simulate():
+async def simulate_line():
     model = RobotModel(State(1, 1, 0, 0))
     control = CompositeControl(LineTest(1, 1, -5, 5, 0))
+    plot = Plot()
+    dt = 1
+    t = 0.0
+    state = model.get_state()
+    plot.update(state)
+    while not control.end(t, state):
+
+        t += dt
+        model.update(dt)
+        state = model.get_state()
+        plot.update(state)
+        
+        speed, omega = control.update(t, state)
+        if speed is not None:
+            model.set_speed_omega(speed, omega)
+
+
+async def simulate_point():
+    model = RobotModel(State(1, 1, 0, 0))
+    control = PointControl(-5, 2, 0.2)
     plot = Plot()
     dt = 0.1
     t = 0.0
@@ -216,7 +271,6 @@ async def simulate():
         speed, omega = control.update(t, state)
         if speed is not None:
             model.set_speed_omega(speed, omega)
-
 
 
 """
@@ -235,7 +289,8 @@ stream u from "control"
 
 
 def main():
-    asyncio.run(simulate())
+    # asyncio.run(simulate_line())
+    asyncio.run(simulate_point())
 
 
 if __name__ == "__main__":
