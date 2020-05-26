@@ -21,7 +21,8 @@ async def open():
     reader, writer = await serial_asyncio.open_serial_connection(url="/dev/ttyS0", baudrate=115200, timeout=3.0)
 
     loop = asyncio.get_event_loop()
-    loop.add_signal_handler(signal.SIGALRM, lambda: asyncio.ensure_future(timeout(writer)))
+    # loop.add_signal_handler(signal.SIGALRM, lambda: asyncio.ensure_future(timeout(writer)))
+    loop.add_signal_handler(signal.SIGALRM, lambda: timeout(writer))
 
     # Arm the motor controller by giving PWM signal. 
     # For both reversible and non-reversible motors:
