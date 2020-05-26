@@ -15,7 +15,7 @@ returning: asyncio.Task = None
 def load(filename):
     config = jsonobject.load(open(filename))
     points = list(((p.x, p.y) for p in config.limit))
-    return Polygon(points).buffer(-0.2, resolution=1, join_style=2)
+    return Polygon(points)  # .buffer(-0.2, resolution=1, join_style=2)
 
 
 async def bump2(x, y, fence, send, stop: asyncio.Event):
@@ -69,8 +69,6 @@ async def avoid(speed, turn, send, stop: asyncio.Event):
 async def main():
 
     fence = load("garden.yaml")
-
-
     stop = asyncio.Event()
     async def send(x): logger.info("Send %s", x)
 

@@ -12,6 +12,8 @@ from PID import PID
 from RobotModel import RobotModel
 from Plotting import Plot
 from abc import ABC
+from shapely.geometry import Point, Polygon
+from shapely.ops import nearest_points
 
 
 log = logging.getLogger(__name__)
@@ -28,6 +30,7 @@ class Control(ABC):
 
 
 class CompositeControl(Control):
+    """Use sequence of controls, end() on the current control triggers using next control"""
 
     def __init__(self, controls):
         self.controls = iter(controls)
@@ -36,7 +39,7 @@ class CompositeControl(Control):
 
     def update(self, t: float, state): # -> (speed, omega)
         # state vectors [x y yaw v]'
-        assert self.controls is not None
+        assert self.control is not None
         log.debug("Composite update %s %f %s", self.control, t, state)
         while self.control.end(t, state):
             try:
@@ -51,13 +54,55 @@ class CompositeControl(Control):
         return self.control is None
 
 
+class CompositeControl2(Control):
+    """Use sequence of controls, end() on the current control triggers using next control"""
+
+    def __init__(self, controls):
+        self.controls = iter(controls)
+        self.control = next(self.controls)
+        log.info("Starting %s", self.control)
+
+    def update(self, t: float, state: State): # -> (speed, omega)
+        # state vectors [x y yaw v]'
+        assert self.control is not None
+        # log.debug("Composite update %s %f %s", self.control, t, state)
+        while self.control.end(t, state):
+            try:
+                self.control = self.controls.send((t, state))
+            except StopAsyncIteration:
+                log.info("Stopped CompositeControl2")
+                self.control = None
+                return None, None
+            log.info("Starting %s %s", t, self.control)
+        return self.control.update(t, state)
+
+    def end(self, t: float, state) -> bool:
+        return self.control is None
+
+
+class StraightControl(Control):
+
+    def __init__(self, speed: float, end):
+        self._end = end
+        self.speed = speed
+
+    def __str__(self):
+        return f"StraightControl({self.speed})"
+
+    def update(self, t: float, state: State): # -> (speed, omega)
+        # state vectors [x y yaw v]'
+        return self.speed, 0
+
+    def end(self, t: float, state: State) -> bool:
+        return self._end(t, state)
+
+
 def norm_angle(a: float) -> float:
     while a > pi:
         a -= 2 * pi
     while a <= -pi:
         a += 2 * pi
     return a
-
 
 
 class HLineControl(Control):
@@ -114,10 +159,11 @@ class HLineControl(Control):
 
 class PointControl(Control):
 
-    def __init__(self, x: float, y: float, dist: float):
+    def __init__(self, x: float, y: float, speed: float, end):
         self.x = x
         self.y = y
-        self.dist = dist
+        self.speed = speed
+        self._end = end
 
     def __str__(self):
         return f"PointControl({self.x},{self.y})"
@@ -128,27 +174,28 @@ class PointControl(Control):
         dy = self.y - state.y
         theta = math.atan2(dy, dx)
         dtheta = norm_angle(theta - state.theta)
-        print("pos", state.x, state.y)
-        print("theta", theta, dtheta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
-        speed = 0.2 * math.exp(-abs(5*dtheta)**2)
+        speed = self.speed * math.exp(-abs(5*dtheta)**2)
         # relax towards desired _theta
         omega = 0.2 * dtheta
-        print("cmd", speed, omega)
         return speed, omega
 
     def end(self, t: float, state: State) -> bool:
-        dx = self.x - state.x
-        dy = self.y - state.y
+        return self._end(t, state)
+
+
+def distance(x, y, r):
+    def d(t: float, state: State):
+        dx = x - state.x
+        dy = y - state.y
         d = math.hypot(dx, dy)
-        print("distance", d, self.dist)
-        return d < self.dist
+        return d < r
+    return d
 
 
 class TimeControl(Control):
 
     def __init__(self, speed: float, omega: float, time: float):
-        self.first = True
         self.speed = speed
         self.omega = omega
         self.time = time # seconds
@@ -159,14 +206,30 @@ class TimeControl(Control):
 
 
     def update(self, t: float, state: State): # -> (speed, omega)
-        if self.first:
-            self.first = False
+        if self.t0 is None:
             self.t0 = t
-            return self.speed, self.omega
-        return None, None
+        return self.speed, self.omega
 
     def end(self, t: float, state: State) -> bool:
         return self.t0 is not None and t >= self.t0 + self.time
+
+
+
+class TimeControl2(Control):
+
+    def __init__(self, speed: float, omega: float, end_time: float):
+        self.speed = speed
+        self.omega = omega
+        self.end_time = end_time
+
+    def __str__(self):
+        return f"TimeControl2"
+
+    def update(self, t: float, state: State): # -> (speed, omega)
+        return self.speed, self.omega
+
+    def end(self, t: float, state: State) -> bool:
+        return t >= self.end_time
 
 
 def start_arc(radius, speed, direction):
@@ -233,6 +296,33 @@ def LineTest(x, y, xl, xr, y0):
         right = not right
 
 
+
+def end_inside(poly: Polygon):
+    def f(t: float, state: State):
+        return poly.contains(Point(state.x, state.y))
+    return f
+
+
+def end_outside(poly: Polygon):
+    def f(t: float, state: State):
+        return not poly.contains(Point(state.x, state.y))
+    return f
+
+
+def FenceBumps(fence):
+    speed = 0.1
+    omega = 0.3
+    from Map import Point, nearest_points
+    import random
+    centroid = fence.buffer(-0.5)
+    target = centroid.buffer(-0.2)
+    while True:
+        t, state = yield StraightControl(speed, end_outside(fence))
+        pc, _ = nearest_points(target, Point(state.x, state.y))
+        t, state = yield PointControl(pc.x, pc.y, speed, end_inside(centroid))
+        t, state = yield TimeControl2(0, random.choice((-omega, omega)), t + 4 * random.random()) # random direction and duration
+
+
 async def simulate_line():
     model = RobotModel(State(1, 1, 0, 0))
     control = CompositeControl(LineTest(1, 1, -5, 5, 0))
@@ -242,12 +332,10 @@ async def simulate_line():
     state = model.get_state()
     plot.update(state)
     while not control.end(t, state):
-
         t += dt
         model.update(dt)
         state = model.get_state()
-        plot.update(state)
-        
+        plot.update(state)        
         speed, omega = control.update(t, state)
         if speed is not None:
             model.set_speed_omega(speed, omega)
@@ -255,21 +343,44 @@ async def simulate_line():
 
 async def simulate_point():
     model = RobotModel(State(1, 1, 0, 0))
-    control = PointControl(-5, 2, 0.2)
+    x = -5
+    y = 2
+    control = PointControl(x, y, 0.2, distance(x, y, 0.4))
     plot = Plot()
     dt = 0.1
     t = 0.0
     state = model.get_state()
     plot.update(state)
     while not control.end(t, state):
-
         t += dt
         model.update(dt)
         state = model.get_state()
         plot.update(state)
-        
         speed, omega = control.update(t, state)
         if speed is not None:
+            model.set_speed_omega(speed, omega)
+
+
+async def simulate_bumps():
+    from Map import load
+    model = RobotModel(State(1, 1, 0, 0))
+    fence = load("garden.yaml")
+    control = CompositeControl2(FenceBumps(fence))
+    plot = Plot()
+    plot.add_shape(fence, facecolor="none", edgecolor="red")
+    # plot.pause()
+    # input("Press Enter to continue...") # for screen recording
+    dt = 1
+    t = 0.0
+    state = model.get_state()
+    plot.update(state)
+    while not control.end(t, state):
+        t += dt
+        model.update(dt)
+        state = model.get_state()
+        plot.update(state)
+        speed, omega = control.update(t, state)
+        if speed is not None and omega is not None:
             model.set_speed_omega(speed, omega)
 
 
@@ -290,12 +401,13 @@ stream u from "control"
 
 def main():
     # asyncio.run(simulate_line())
-    asyncio.run(simulate_point())
+    # asyncio.run(simulate_point())
+    asyncio.run(simulate_bumps())
 
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         #filename="control.log",
         format='%(asctime)s %(levelname)s %(message)s',
     )
