@@ -84,8 +84,9 @@ async def gps_consumer(reader, incoming):
             if msg:
                 await incoming.put((t, msg))
         except:
-            logger.error("GPS consumer failed", exc_info=True)
+            logger.error("GPS decode", exc_info=True)
             raise
+
 
 async def from_gps(host):
     while True:
@@ -112,21 +113,16 @@ async def gps_connection(host, incoming):
             logger.info("Connected to GPS")
             # await asyncio.create_task(gps_consumer(reader, incoming))
             while True:
-                try:
-                    msg = await reader.readline()
-                    t = datetime.utcnow()
-                    msg = msg.decode().strip()
-                    logger.debug("GPS %s", msg)
-                    msg = GPS.process(msg)
-                    if msg: 
-                        await incoming.put((t, msg))
-                except:
-                    logger.error("GPS consumer failed", exc_info=True)
-                    raise
-
+                msg = await reader.readline()
+                t = datetime.utcnow()
+                msg = msg.decode().strip()
+                logger.debug("GPS %s", msg)
+                msg = GPS.process(msg)
+                if msg: 
+                    await incoming.put((t, msg))
         except:
-            logger.error("From GPS failed", exc_info=True)
-        await asyncio.sleep(1)
+            logger.error("GPS connection", exc_info=True)
+        await asyncio.sleep(2)
 
 
 async def incoming_consumer(incoming):
@@ -154,6 +150,7 @@ async def test_streamq(host):
     tg = asyncio.create_task(gps_connection(host, incoming))
     await asyncio.gather(tc, tg, ti, to)
 
+
 # could take stream of controld commands as input!?
 # creat a task in from_controld that consumes the stream
 # but can we consume from different tasks???
@@ -168,7 +165,7 @@ async def record(host):
     try:
         # aiostream.stream.merge(from_gps(host), from_robot(host)) | aiostream.pipe.print()
         async for m in stream(host):
-            print(m)
+            pass # print(m)
     except:
         logger.error("Record failed", exc_info=1)
 
@@ -252,15 +249,59 @@ async def fencebump_control(host, yaw=0, speed=0):
         await bump2(state.x, state.y, fence, send, stop)
 
 
+async def fencebump_control2(host, yaw=0, speed=0):
+    from Map import load
+    from Plotting import Plot
+    from control import FenceBumpControl
+    from shapely.geometry import box
+
+    fence = load("garden.yaml")
+    aoi = box(10, -10, 20, 10) # end of garden
+    fence = fence.intersection(aoi)
+
+    control = FenceBumpControl(fence)
+    plot = Plot()
+    plot.add_shape(fence, facecolor="none", edgecolor="red")
+
+    incoming = asyncio.Queue()
+    outgoing = asyncio.Queue()
+    # Keep references to tasks to avoid them being stopped instantly
+    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
+    tg = asyncio.create_task(gps_connection(host, incoming))
+    # to = asyncio.create_task(heartbeat(outgoing))
+
+    # incoming -> track -> control -> outgoing
+    async for state in play.track(incoming_generator(incoming), yaw, speed):
+        t = time.time()
+        plot.update(state)
+        speed, omega = control.update(t, state)
+        if speed is not None:
+            t = datetime.utcnow()
+            m = RobotState.SpeedCommand(speed)
+            await outgoing.put((t, m))
+        if omega is not None:
+            t = datetime.utcnow()
+            m = RobotState.OmegaCommand(omega)
+            await outgoing.put((t, m))
+        if speed is not None and omega is not None:
+            t = datetime.utcnow()
+            m = RobotState.CutCommand(15)
+            await outgoing.put((t, m))
+            # TODO: timeout on commands
+            t = datetime.utcnow()
+            m = RobotState.HeartbeatCommand()
+            await outgoing.put((t, m))
+
+
 if __name__ == "__main__":
     import sys, yaml
     import logging.config
     with open("record.yaml") as f:
         logging.config.dictConfig(yaml.full_load(f))
-    host = sys.argv[1]
+    host = len(sys.argv) > 1 and sys.argv[1] or "192.168.1.136"
     #asyncio.run(record(host))
     #asyncio.run(track(host))
     #asyncio.run(track2(host))
     #asyncio.run(line_control(host))
-    asyncio.run(fencebump_control(host))
+    asyncio.run(fencebump_control2(host))
     # TODO: plug simulator into outgoing -> incoming

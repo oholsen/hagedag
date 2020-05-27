@@ -255,8 +255,8 @@ class ExtendedKalmanFilterTracker:
 
 
 async def track(stream, yaw=0, speed=0):
-    show_animation = True
-    # show_animation = False
+    #show_animation = True
+    show_animation = False
     
     # state vectors [x y yaw v]'
     first = True

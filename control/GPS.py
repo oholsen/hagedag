@@ -7,6 +7,9 @@ import utm
 # http://navspark.mybigcommerce.com/content/NMEA_Format_v0.1.pdf
 # online decode with map: https://rl.se/gprmc
 
+# http://www.nvs-gnss.com/support/documentation/item/download/96.html
+
+
 def to_float(s: str) -> Optional[float]:
     try:
         return float(s)
@@ -91,7 +94,9 @@ class RMC(GPS):
         self.mode = segments[12] # "R" for RTK
 
     def has_rtk(self):
-        return self.mode == "R"
+        # TODO: investigate estimated error 
+        # - or - adjust tracking filter for float RTK ("F")
+        return self.mode == "R" or self.mode == "F"
 
 
 class Ignore(GPS):

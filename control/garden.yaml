@@ -1,0 +1,30 @@
+limit:
+ - x: -4  # hekken
+   y: -1
+
+ - x: 3 # forbi rosene
+   y: -1
+
+ - x: 16 # litt forbi sville hjørne
+   y: 0
+
+ - x: 17 #
+   y: 0
+
+ - x: 17 # heilt i hjørnet, robot på skrå
+   y: -3.8
+
+ - x: 4 # sandkasse TL
+   y: -6.7
+
+ - x: 4 # sandkasse BL
+   y: -5.0
+
+ - x: 1.8 # sandkasse BR
+   y: -5.0
+
+ - x: 1.8 # til gran
+   y: -5.5
+
+ - x: -4
+   y: -5.5

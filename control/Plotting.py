@@ -8,7 +8,7 @@ from state import State
 
 class Plot():
     
-    def __init__(self, ax:plt.Axes=None):
+    def __init__(self, ax:plt.Axes=None, frames_per_plot=1):
         self.x = []
         self.y = []
         self.speed = []
@@ -19,7 +19,7 @@ class Plot():
         self.ax = ax
         self.patches = []
         self.frame = 0
-        self.frames_per_plot = 10
+        self.frames_per_plot = frames_per_plot
 
     def show(self):
         plt.show()
@@ -53,14 +53,14 @@ class Plot():
         self.ax.cla()
         self.ax.set_aspect('equal', 'box')
         self.ax.grid(True)
+        for p in self.patches:
+            self.ax.add_patch(p)
+
         # ax.set_title('Garden Map')
-        self.ax.autoscale_view()
+        # self.ax.autoscale_view()
         a = 1  # * speed
         self.ax.arrow(x, y, a * cos(theta), a * sin(theta), zorder=2) # top
         self.ax.plot(self.x, self.y, ".b", label="trajectory", zorder=1) # bottom
 
-        for p in self.patches:
-            self.ax.add_patch(p)
-
-        plt.pause(1e-9)
+        plt.pause(0.001)
         #plt.show()

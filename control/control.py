@@ -177,7 +177,8 @@ class PointControl(Control):
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
         speed = self.speed * math.exp(-abs(5*dtheta)**2)
         # relax towards desired _theta
-        omega = 0.2 * dtheta
+        # omega = 0.2 * dtheta
+        omega = math.copysign(min(abs(dtheta), 0.3), dtheta)
         return speed, omega
 
     def end(self, t: float, state: State) -> bool:
@@ -360,13 +361,15 @@ async def simulate_point():
         if speed is not None:
             model.set_speed_omega(speed, omega)
 
+def FenceBumpControl(fence):
+    return CompositeControl2(FenceBumps(fence))
 
 async def simulate_bumps():
     from Map import load
     model = RobotModel(State(1, 1, 0, 0))
     fence = load("garden.yaml")
-    control = CompositeControl2(FenceBumps(fence))
-    plot = Plot()
+    control = FenceBumpControl(fence)
+    plot = Plot(frames_per_plot=10)
     plot.add_shape(fence, facecolor="none", edgecolor="red")
     # plot.pause()
     # input("Press Enter to continue...") # for screen recording
