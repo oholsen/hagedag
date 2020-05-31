@@ -102,6 +102,8 @@
     const form = document.getElementById("form");
 
     function debug(message) {
+      if (message.startsWith("IV"))
+        config.value = "";
       config.value += message;
       config.scrollTop = config.scrollHeight;
     }
