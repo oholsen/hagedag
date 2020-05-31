@@ -2,13 +2,18 @@
 import websockets
 import asyncio
 import logging
-import current
 
 '''
 A WebSocket end-point for the control of the robot, controlling the RPi and forwarding to the STM via a serial port.
 '''
 
 logger = logging.getLogger("controld.main")
+
+try:
+    # Fails if I2C is not present
+    import current
+except:
+    logger.exception("Failed to set up current measurement")
 
 connections = set()
 test = False
@@ -41,9 +46,12 @@ async def read_control(reader):
 async def measure_current():
     while True:
         await asyncio.sleep(1)
-        i1, i2, i3, v_bat = current.measure()
-        msg = f"IV {i1:.3f} {i2:.3f} {i3:.3f} {v_bat:.3f}\n"
-        await broadcast(msg)
+        try:
+            i1, i2, i3, v_bat = current.measure()
+            msg = f"IV {i1:.3f} {i2:.3f} {i3:.3f} {v_bat:.3f}\n"
+            await broadcast(msg)
+        except Exception as e:
+            await broadcast("ERROR measure current: %s" % e)
 
 
 async def handle(ws, path, writer):
