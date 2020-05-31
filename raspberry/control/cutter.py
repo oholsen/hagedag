@@ -33,7 +33,7 @@ class BrushedCutter:
 
 
 
-class BrushlessCutter:
+class BrushlessCutterUnidirectional:
         # Forward only (airplane) motor
         def __init__(self):
                 from servo import Servo
@@ -41,8 +41,6 @@ class BrushlessCutter:
 
         def off(self):
                 self.cutter.off()
-                pi.write(In1, 0)
-                pi.write(In2, 0)
 
         def stop(self):
                 self.cutter.power(0)
@@ -51,9 +49,27 @@ class BrushlessCutter:
                 self.cutter.power(power)
 
 
+class BrushlessCutterBidirectional:
+        # Car/boat with reverse
+        def __init__(self):
+                from servo import Servo
+                self.cutter = Servo(CutterPin)
+
+        def off(self):
+                self.cutter.off()
+
+        def stop(self):
+                self.cutter.power(0)
+
+        def power(self, power):
+                self.cutter.amplitude(power)
+
+
+cutter = BrushlessCutterUnidirectional()
+
+
 if __name__ == '__main__':
         import sys
-        cutter = BrushlessCutter()
         try:
                 cutter.power(float(sys.argv[1]))
         except:

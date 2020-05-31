@@ -12,8 +12,7 @@ pi = pigpio.pi()
 pi.set_mode(14, pigpio.ALT5)  # TXD
 pi.set_mode(15, pigpio.ALT5)  # RXD
 
-from cutter import BrushlessCutter
-cutter = BrushlessCutter()
+from cutter import cutter
 
 async def open():
 
