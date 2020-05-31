@@ -70,16 +70,29 @@ class RobotStateFeed(object):
         self.speed_time: datetime = None
         self.speeds: RobotState.Speed = None        
 
+        self.battery_ok = True # TODO: None but a delay for starting up
+        self.battery: RobotState.Battery = None
+
+    # TODO: also report error state - or be able to return status from here...
+
     def update(self, tt, o): # -> Optional[Tuple[t,dt,z,u]]
         # each GPS cycle starts with RMC, Revs are on same cycle - could interpolate and get speed???
         # yield tracker input state on each RMC
-        # logger.debug("UPDATE %s %r", tt, o)
+
+        # logger.debug("Feed update %s %r %s", tt, o, o)
+
         if tt is None or o is None:
+            logger.error("Invalid input: %s %s", tt, o)
             return
+
         if isinstance(o, GPS.RMC):
-            # logger.debug("RMC %s %s", o.mode, o.has_rtk())
-            if not o.has_rtk():
-                return
+
+            # logger.debug("RMC %s %s %g", o.mode, o.has_rtk(), o.hdop)
+            # TODO: figure out what to do here!
+            # if not o.has_rtk(): return
+            # FIXME: configurable for AIO and distance to fence!!!
+            if o.hdop > 0.20: return
+
             u = GPS.UTM(o.lat, o.lon)
             # print(o.time, o.lat, o.lon, o.alt)
             deasting = u.easting - GPS.u0.easting
@@ -115,9 +128,10 @@ class RobotStateFeed(object):
             return tt, dt, z, ud
 
         if isinstance(o, GPS.GGA):
-            if self.rmc:
-                assert o.lat == self.rmc.lat
-                assert o.lon == self.rmc.lon
+            # Can be different without RTK fix, get GGA updates without updating self.rmc
+            # if self.rmc:
+            #    assert o.lat == self.rmc.lat
+            #    assert o.lon == self.rmc.lon
             return
 
         if isinstance(o, RobotState.Revs):
@@ -159,31 +173,46 @@ class RobotStateFeed(object):
             self.omega1 = o.omega
             return
 
+        if isinstance(o, RobotState.Battery):
+            logger.debug("BATTERY %s", o)
+            self.battery = o
+            # TODO: configurable threshold - eg global config "dep injection"
+            self.battery_ok = self.battery.volts > 10
+            return
 
 
 async def track_input(stream):
     p = RobotStateFeed()
     async for t, o in stream:
         # logger.debug("track input {%s} {%s}", t, o)
-        if t is not None and o is not None:
-            # t, dt, z, u or None
-            m = p.update(t, o)
-            if m is not None:
-                yield m
+        if t is None or o is None:
+            continue
+
+        # returns (t, dt, z, u) or None
+        m = p.update(t, o)
+        # logger.debug("track input %s %r -> %r", t, o, m)
+        if not p.battery_ok:
+            logger.debug("Battery not ok: %r %s", p.battery_ok, p.battery)
+            continue
+        if m is not None:
+            # logger.debug("track input %s %r -> %r", t, o, m)
+            yield m
 
 
 async def track(stream, yaw=0, speed=0):
     # async for x in track_input(stream): print("track", repr(x))
     # return await tracking.track(track_input(stream), yaw=yaw, speed=speed)
     async for s in tracking.track(track_input(stream), yaw=yaw, speed=speed):
-        yield state.from_array(s)
+        s = state.from_array(s)
+        logger.debug("STATE %g %g %g %g", s.x, s.y, s.theta, s.speed)
+        yield s
 
 
 if __name__ == "__main__":
     import asyncio
     logging.basicConfig(
         level=logging.INFO,
-        filename="record.log",
+        filename="play.log",
         format='%(asctime)s %(levelname)s %(message)s',
     )
     filename = sys.argv[1]

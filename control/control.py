@@ -310,9 +310,7 @@ def end_outside(poly: Polygon):
     return f
 
 
-def FenceBumps(fence):
-    speed = 0.1
-    omega = 0.3
+def FenceBumps(fence, speed, omega):
     from Map import Point, nearest_points
     import random
     centroid = fence.buffer(-0.5)
@@ -361,8 +359,8 @@ async def simulate_point():
         if speed is not None:
             model.set_speed_omega(speed, omega)
 
-def FenceBumpControl(fence):
-    return CompositeControl2(FenceBumps(fence))
+def FenceBumpControl(fence, speed=0.05, omega=0.2):
+    return CompositeControl2(FenceBumps(fence, speed, omega))
 
 async def simulate_bumps():
     from Map import load

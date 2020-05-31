@@ -106,6 +106,8 @@ async def from_gps(host):
 
 
 async def gps_connection(host, incoming):
+    import re
+    log_filter = re.compile(r".G.(RMC|GGA|VTG).*")
     while True:
         try:
             logger.info("Connecting to GPS")
@@ -116,7 +118,8 @@ async def gps_connection(host, incoming):
                 msg = await reader.readline()
                 t = datetime.utcnow()
                 msg = msg.decode().strip()
-                logger.debug("GPS %s", msg)
+                if log_filter.match(msg):
+                    logger.debug("GPS %s", msg)
                 msg = GPS.process(msg)
                 if msg: 
                     await incoming.put((t, msg))
@@ -174,6 +177,7 @@ async def record(host):
 async def incoming_generator(incoming):
     while True:
         t, m = await incoming.get()
+        # logger.debug("incoming %r %r", t, m)
         yield t, m
         incoming.task_done()
 
@@ -192,8 +196,7 @@ async def track2(host, yaw=0, speed=0):
     # await asyncio.gather(tc, tg, ti, to)
     # incoming -> track -> control -> outgoing
     async for s in play.track(incoming_generator(incoming), yaw, speed):
-        print("track2", s)
-
+        logger.info("track2 %g %g %g %g", s.x, s.y, s.theta, s.speed)
 
 
 async def line_control(host, yaw=0, speed=0):
@@ -250,18 +253,18 @@ async def fencebump_control(host, yaw=0, speed=0):
 
 
 async def fencebump_control2(host, yaw=0, speed=0):
-    from Map import load
+    from Map import Config
     from Plotting import Plot
     from control import FenceBumpControl
     from shapely.geometry import box
 
-    fence = load("garden.yaml")
-    aoi = box(10, -10, 20, 10) # end of garden
-    fence = fence.intersection(aoi)
-
-    control = FenceBumpControl(fence)
+    logger.info("Starting fence bump control2")
+    config = Config("mission.yaml")
+    fence = config.fence.intersection(config.aoi)
+    control = FenceBumpControl(fence, config.mission.speed or 0.05, config.mission.omega or 0.2)
     plot = Plot()
     plot.add_shape(fence, facecolor="none", edgecolor="red")
+    plot.pause()
 
     incoming = asyncio.Queue()
     outgoing = asyncio.Queue()
@@ -274,7 +277,9 @@ async def fencebump_control2(host, yaw=0, speed=0):
     async for state in play.track(incoming_generator(incoming), yaw, speed):
         t = time.time()
         plot.update(state)
+        # continue
         speed, omega = control.update(t, state)
+        # logger.debug("Update %s -> %r %r", state, speed, omega)
         if speed is not None:
             t = datetime.utcnow()
             m = RobotState.SpeedCommand(speed)
@@ -285,7 +290,7 @@ async def fencebump_control2(host, yaw=0, speed=0):
             await outgoing.put((t, m))
         if speed is not None and omega is not None:
             t = datetime.utcnow()
-            m = RobotState.CutCommand(15)
+            m = RobotState.CutCommand(20)
             await outgoing.put((t, m))
             # TODO: timeout on commands
             t = datetime.utcnow()

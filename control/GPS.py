@@ -88,10 +88,11 @@ class RMC(GPS):
         self.status = segments[2]
         self.lat = parse_lat(segments[3], segments[4])
         self.lon = parse_lon(segments[5], segments[6])
+        self.hdop = float(segments[7])
         self.speed_knots = to_float(segments[8])
         self.course_over_ground = to_float(segments[9])
         self.date = segments[9] # "ddmmyy"
-        self.mode = segments[12] # "R" for RTK
+        self.mode = segments[12] # "R" for RTK fix, "F" for floating RTK
 
     def has_rtk(self):
         # TODO: investigate estimated error 

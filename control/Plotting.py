@@ -58,6 +58,7 @@ class Plot():
 
         # ax.set_title('Garden Map')
         # self.ax.autoscale_view()
+        self.ax.add_patch(Circle((x, y), 0.15))
         a = 1  # * speed
         self.ax.arrow(x, y, a * cos(theta), a * sin(theta), zorder=2) # top
         self.ax.plot(self.x, self.y, ".b", label="trajectory", zorder=1) # bottom

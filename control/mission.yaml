@@ -1,0 +1,16 @@
+aoi:
+  - x: -20
+    y: -2
+  - x: -9
+    y: 10
+
+aoi-dukkestue:
+  - x: 4
+    y: -4
+  - x: 15
+    y: -20
+
+battery_cutoff: 10
+speed: 0.05
+omega: 0.15
+garden: garden.yaml

@@ -1,30 +1,100 @@
+aoi:
+  - x: 0
+    y: -2
+  - x: -15
+    y: 10
+
 limit:
- - x: -4  # hekken
-   y: -1
+  - x: -4  # hekken
+    y: -1
 
- - x: 3 # forbi rosene
-   y: -1
+  - x: 3 # forbi rosene
+    y: -1
 
- - x: 16 # litt forbi sville hjørne
-   y: 0
+  - x: 16 # litt forbi sville hjørne
+    y: -0.3
 
- - x: 17 #
-   y: 0
+  - x: 17
+    y: 2
 
- - x: 17 # heilt i hjørnet, robot på skrå
-   y: -3.8
+  - x: 18 
+    y: 2
 
- - x: 4 # sandkasse TL
-   y: -6.7
+  - x: 19 #
+    y: 0
 
- - x: 4 # sandkasse BL
-   y: -5.0
+  - x: 16.7 # heilt i hjørnet, robot på skrå
+    y: -3.5
 
- - x: 1.8 # sandkasse BR
-   y: -5.0
+  - x: 13.7 # lita bjørk v/dokkestua
+    y: -4.8
 
- - x: 1.8 # til gran
-   y: -5.5
+  - x: 8.8 # venstre hjørne ved steinvegg
+    y: -7.0
 
- - x: -4
-   y: -5.5
+  - x: 5.7 # rør
+    y: -6.2
+
+  - x: 4.0 # sandkasse TL
+    y: -6.7
+
+  - x: 4.0 # sandkasse BL
+    y: -5.0
+
+  - x: 2.0 # sandkasse BR
+    y: -5.0
+
+  - x: 2.0 # sandkasse BR
+    y: -5.6
+
+  - x: 0.0 # gran til N/NW
+    y: -5.6
+
+  - x: 0.0 # bak til steingrøft
+    y: -9
+
+  - x: -3 # til ny gran
+    y: -9
+
+  - x: -3 # til ny gran
+    y: -7.5
+
+  - x: -10 # under midten av slacklina
+    y: -7.5
+
+  - x: -11.6 # rosa
+    y: -4
+
+  - x: -11.2 # epletre - er 0.5m nærmere midten enn rosa
+    y: 0
+
+  - x: -12 # rabarbrahjørne
+    y: 4
+
+  - x: -11 # hjørne mellom rips og trapp
+    y: 4
+
+  - x: -10.5 # trapp mot rabarbra
+    y: 5
+
+  - x: -10.0 # trapp mot drue
+    y: 5
+
+
+  - x: -10.0 # solbær veranda
+    y: 2.8
+
+  - x: -10.3 # solbær veranda
+    y: 2.8
+
+  - x: -10.3 # solbær veranda
+    y: 1.9
+
+  - x: -9.8 # solbær veranda (-9.6)
+    y: 1.3
+
+  - x: -9.8 # hjørne hekk
+    y: -0.3 # litt til...
+
+  - x: -5.7 # knekk hekk
+    y: -0.3

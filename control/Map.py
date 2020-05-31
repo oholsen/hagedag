@@ -20,27 +20,53 @@ def shape_to_patch(shape, **kwargs):
     return polygon_pathpatch(list(shape.exterior.coords)[1:], **kwargs)    
 
 
-def load(filename) -> Polygon:
+def load_garden(filename) -> Polygon:
     config = jsonobject.load(open(filename))
-    points = list(((p.x, p.y) for p in config.limit))
-    return Polygon(points)
+    fence = Polygon(list(((p.x, p.y) for p in config.limit)))
+    return fence
+
+
+def load_mission(filename) -> jsonobject:
+    config = jsonobject.load(open(filename))
+    return config
+
+def aoi_from_config(config):
+    if config.aoi:
+        p0 = config.aoi[0]
+        p1 = config.aoi[1]
+        return box(p0.x, p0.y, p1.x, p1.y)
+
+
+class Config:
+
+    def __init__(self, filename):
+        self.mission = load_mission(filename)
+        self.fence = load_garden(self.mission.garden)
+        self.aoi = aoi_from_config(self.mission)
+        self.centroid = self.fence.buffer(-0.5)
+
 
 def main():
-    config = jsonobject.load(open("garden.yaml"))
-    # print(config)
-    points = list(((p.x, p.y) for p in config.limit))
-    fence = Polygon(points)
   
     fig, ax = plt.subplots()
     fig.set_size_inches(20, 8)
+
+    mission = load_mission("mission.yaml")
+    fence = load_garden(mission.garden)
+    aoi = aoi_from_config(mission)
+
     ax.add_patch(shape_to_patch(fence, facecolor='None', edgecolor='red'))
+    centroid = fence.buffer(-0.5)
+    ax.add_patch(shape_to_patch(centroid, facecolor='khaki'))
+   
+    fence_new = load_garden("garden-new.yaml")
+    ax.add_patch(shape_to_patch(fence_new, facecolor='None', edgecolor='yellow'))
 
-    centroid = fence.buffer(-1)#, resolution=1) #, join_style=2)
-    ax.add_patch(shape_to_patch(centroid, facecolor='green', edgecolor='green'))
-
-    aoi = box(10, -10, 20, 10)
-    aoi = fence.intersection(aoi)
-    ax.add_patch(shape_to_patch(aoi, facecolor='none', edgecolor='blue'))
+    if aoi:
+        print("fence", fence)
+        print("x", fence.intersection(aoi))
+        ax.add_patch(shape_to_patch(fence.intersection(aoi), facecolor='none', edgecolor='blue'))
+        ax.add_patch(shape_to_patch(fence_new.intersection(aoi).buffer(-0.5), facecolor='darkkhaki'))
 
     p = Point(4.5, -6.6)
     ax.add_patch(Circle((p.x, p.y), 0.2))
