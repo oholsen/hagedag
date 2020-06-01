@@ -107,11 +107,13 @@ def norm_angle(a: float) -> float:
 
 class HLineControl(Control):
 
-    def __init__(self, y: float, right: bool, end_x: float):
+    def __init__(self, y: float, right: bool, end_x: float, speed=0.2, omega=0.2):
         self.pid = PID(0.4, 1, 1.5, 0.2)
         self.y = y
         self.right = right
         self.end_x = end_x
+        self.speed = speed
+        self.omega = omega
         self.t_last = None
 
     def __str__(self):
@@ -131,9 +133,10 @@ class HLineControl(Control):
             theta = pi - theta
         dtheta = norm_angle(theta - state.theta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
-        speed = 0.2 * math.exp(-abs(5*dtheta)**2)
+        speed = self.speed * math.exp(-abs(5*dtheta)**2)
         # relax towards desired _theta
-        omega = 0.2 * dtheta
+        # omega = 0.2 * dtheta
+        omega = math.copysign(min(abs(dtheta), self.omega), dtheta)
         domega = 0
 
         
@@ -245,7 +248,6 @@ class ArcControl(Control):
     def __init__(self, speed, omega, end_theta):
         self.end_theta = end_theta
         self.dtheta_last = None
-        self.first = True
         self.speed = speed
         self.omega = omega
 
@@ -253,10 +255,7 @@ class ArcControl(Control):
         return f"ArcControl({self.end_theta})"
 
     def update(self, t: float, state: State): # -> (speed, omega)
-        if self.first:
-            self.first = False
-            return self.speed, self.omega
-        return None, None
+        return self.speed, self.omega
 
     def end(self, t: float, state: State) -> bool:
         # stop at first zero crossing, but not a random jump +-pi
@@ -296,6 +295,24 @@ def LineTest(x, y, xl, xr, y0):
         yield TimeControl(0, omega_max * random.uniform(-1, 1), 3)
         right = not right
 
+def ScanHLine(x0, y0, x1, y1, speed, omega):
+    assert x1 > x0
+    assert y1 > y0
+    dy = 0.2
+    y = y0
+    right = True
+    end_x = {True: x1, False: x0}
+    end_theta = {True: 0, False: pi}
+    while True:
+        # TODO: dummy first control, with end() just to get state?
+        t, state = yield HLineControl(y, right, end_x[right])
+        y += dy
+        right = not right
+        if y > y1: 
+            y = y0
+        else:
+            s, o = start_arc(dy/2, speed, right)
+            t, state = yield ArcControl(s, -o, end_theta[right])
 
 
 def end_inside(poly: Polygon):
@@ -359,8 +376,10 @@ async def simulate_point():
         if speed is not None:
             model.set_speed_omega(speed, omega)
 
+
 def FenceBumpControl(fence, speed=0.05, omega=0.2):
     return CompositeControl2(FenceBumps(fence, speed, omega))
+
 
 async def simulate_bumps():
     from Map import load
@@ -385,6 +404,35 @@ async def simulate_bumps():
             model.set_speed_omega(speed, omega)
 
 
+async def simulate_scanhline():
+    from Map import load_mission, load_garden
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(20, 8)
+
+    mission = load_mission("mission.yaml")
+    fence = load_garden(mission.garden)
+
+    model = RobotModel(State(1, 1, 0, 0))
+    control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, mission.speed, mission.omega))
+    plot = Plot(frames_per_plot=10)
+    plot.add_shape(fence, facecolor="none", edgecolor="red")
+    dt = 1
+    t = 0.0
+    state = model.get_state()
+    plot.update(state)
+    while not control.end(t, state):
+        t += dt
+        model.update(dt)
+        state = model.get_state()
+        plot.update(state)
+        speed, omega = control.update(t, state)
+        if speed is not None and omega is not None:
+            model.set_speed_omega(speed, omega)
+
+
+
 """
 
 M: t1, u -> t2, u, z
@@ -403,7 +451,8 @@ stream u from "control"
 def main():
     # asyncio.run(simulate_line())
     # asyncio.run(simulate_point())
-    asyncio.run(simulate_bumps())
+    # asyncio.run(simulate_bumps())
+    asyncio.run(simulate_scanhline())
 
 
 if __name__ == "__main__":

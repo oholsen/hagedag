@@ -211,8 +211,8 @@ async def line_control(host, yaw=0, speed=0):
     y0 = -3
 
     y = -3
-    xl = -2
-    xr = 4
+    xl = -9
+    xr = 10
     _control = control.CompositeControl(control.LineTest(x0, y0, xl, xr, y))
     # plot = Plot()
 
@@ -252,16 +252,19 @@ async def fencebump_control(host, yaw=0, speed=0):
         await bump2(state.x, state.y, fence, send, stop)
 
 
-async def fencebump_control2(host, yaw=0, speed=0):
+async def mission_control(host, yaw=0, speed=0):
     from Map import Config
     from Plotting import Plot
-    from control import FenceBumpControl
+    from control import CompositeControl2, ScanHLine, FenceBumpControl
     from shapely.geometry import box
 
-    logger.info("Starting fence bump control2")
     config = Config("mission.yaml")
     fence = config.fence.intersection(config.aoi)
-    control = FenceBumpControl(fence, config.mission.speed or 0.05, config.mission.omega or 0.2)
+    # control = FenceBumpControl(fence, config.mission.speed or 0.05, config.mission.omega or 0.2)
+    control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, config.mission.speed or 0.1, config.mission.omega or 0.2))
+
+    logger.info("Starting mission control for %s", control)
+
     plot = Plot()
     plot.add_shape(fence, facecolor="none", edgecolor="red")
     plot.pause()
@@ -308,5 +311,6 @@ if __name__ == "__main__":
     #asyncio.run(track(host))
     #asyncio.run(track2(host))
     #asyncio.run(line_control(host))
-    asyncio.run(fencebump_control2(host))
+    asyncio.run(mission_control(host))
     # TODO: plug simulator into outgoing -> incoming
+    

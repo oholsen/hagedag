@@ -89,9 +89,9 @@ class RobotStateFeed(object):
 
             # logger.debug("RMC %s %s %g", o.mode, o.has_rtk(), o.hdop)
             # TODO: figure out what to do here!
-            # if not o.has_rtk(): return
+            #if not o.has_rtk(): return
             # FIXME: configurable for AIO and distance to fence!!!
-            if o.hdop > 0.20: return
+            if o.hdop > 0.20 and not o.has_rtk(): return
 
             u = GPS.UTM(o.lat, o.lon)
             # print(o.time, o.lat, o.lon, o.alt)
