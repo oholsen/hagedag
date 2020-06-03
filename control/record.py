@@ -261,8 +261,10 @@ async def mission_control(host, yaw=0, speed=0):
     config = Config("mission.yaml")
     fence = config.fence.intersection(config.aoi)
     # control = FenceBumpControl(fence, config.mission.speed or 0.05, config.mission.omega or 0.2)
-    # control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, config.mission.speed or 0.1, config.mission.omega or 0.2))
-    control = CompositeControl2(ScanHLine(-10.5, -1.6, 17, -0.9, config.mission.speed or 0.1, config.mission.omega or 0.2))
+    # control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, config.mission.speed or 0.1, config.mission.omega or 0.2)) # midten
+    # control = CompositeControl2(ScanHLine(-10.5, -1.6, 17, -0.9, config.mission.speed or 0.1, config.mission.omega or 0.2)) # roser
+    # control = CompositeControl2(ScanHLine(-10, -7.5, -1, -4, config.mission.speed or 0.1, config.mission.omega or 0.2)) # slackline - gml gran
+    control = CompositeControl2(ScanHLine(-10, -9, -6, -4, config.mission.speed or 0.1, config.mission.omega or 0.1)) # slackline - paere
 
     logger.info("Starting mission control for %s", control)
 

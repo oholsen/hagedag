@@ -298,7 +298,7 @@ def LineTest(x, y, xl, xr, y0):
 def ScanHLine(x0, y0, x1, y1, speed, omega):
     assert x1 > x0
     assert y1 > y0
-    dy = 0.2
+    dy = 0.14
     y = y0
     right = True
     end_x = {True: x1, False: x0}
