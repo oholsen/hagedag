@@ -125,7 +125,7 @@ class RobotStateFeed(object):
             # print("SPEEDOMEGA", speed, omega)
             self.rmc_time = tt
             self.rmc = o
-            return tt, dt, z, ud
+            return tt, dt, z, ud, o.hdop
 
         if isinstance(o, GPS.GGA):
             # Can be different without RTK fix, get GGA updates without updating self.rmc

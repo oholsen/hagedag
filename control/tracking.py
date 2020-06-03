@@ -23,7 +23,7 @@ Q = np.diag([
 ]) ** 2  # predict state covariance
 
 # Observation x,y position covariance
-R = np.diag([0.02, 0.02]) ** 2  
+# R = np.diag([0.02, 0.02]) ** 2  
 
 
 if 0:    
@@ -63,6 +63,7 @@ def dead_reckon(xd, ud, dt: float):
 
 
 def observation(xTrue, xd, u, dt: float):
+    # simulation
     xTrue = motion_model(xTrue, u, dt)
 
     # add noise to gps x-y
@@ -137,7 +138,7 @@ def jacob_h():
     return jH
 
 
-def ekf_estimation(xEst, PEst, z, u, dt: float):
+def ekf_estimation(xEst, PEst, z, u, R, dt: float):
     #  Predict
     xPred = motion_model(xEst, u, dt)
     jF = jacob_f(xEst, u, dt)
@@ -188,13 +189,13 @@ async def read_simulation():
     # State Vector [x y yaw v]'
     xTrue = np.zeros((4, 1))
     z = np.zeros((2, 1))
-    yield 0, None, z, None
+    yield 0, None, z, None, None
 
     while SIM_TIME >= time:
         u = calc_input()
         xTrue, z, ud = simulate(xTrue, u, dt)
         time += dt
-        yield time, dt, z, ud
+        yield time, dt, z, ud, 0.1
 
 
 class History:
@@ -245,9 +246,9 @@ class ExtendedKalmanFilterTracker:
     def get_state(self):
         return self.state
 
-    def update(self, z, u, dt: float):
+    def update(self, z, u, R, dt: float):
         # u: input, z: observation (not used here)
-        self.state, self.P = ekf_estimation(self.state, self.P, z, u, dt)
+        self.state, self.P = ekf_estimation(self.state, self.P, z, u, R, dt)
         return self.state
 
     def plot_covariance(self):
@@ -284,7 +285,7 @@ async def track(stream, yaw=0, speed=0):
 
     # async for o in stream: print("track", repr(o))
 
-    async for _, dt, z, ud in stream:
+    async for _, dt, z, ud, hdop in stream:
 
         # print("TRACK STREAM", dt, z, ud)
         if first:
@@ -299,8 +300,10 @@ async def track(stream, yaw=0, speed=0):
             yield s
             continue
 
+        # each component is 0.707 * hdop (hdop is radius)
+        R = np.diag([0.7 * hdop, 0.7 * hdop]) ** 2  
         hdr.add(dr.update(z, ud, dt))
-        s = ekf.update(z, ud, dt)
+        s = ekf.update(z, ud, R, dt)
         hekf.add(s)
         hz.add(z)
         yield s
@@ -317,6 +320,11 @@ async def track(stream, yaw=0, speed=0):
     plt.show()
 
 
+async def main():
+    async for s in track(read_simulation()):
+        print(s)
+
+
 if __name__ == '__main__':
     import asyncio
-    asyncio.run(track(read_simulation()))
+    asyncio.run(main())
