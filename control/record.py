@@ -261,12 +261,14 @@ async def mission_control(host, yaw=0, speed=0):
     config = Config("mission.yaml")
     fence = config.fence.intersection(config.aoi)
     # control = FenceBumpControl(fence, config.mission.speed or 0.05, config.mission.omega or 0.2)
-    control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, config.mission.speed or 0.1, config.mission.omega or 0.2))
+    # control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, config.mission.speed or 0.1, config.mission.omega or 0.2))
+    control = CompositeControl2(ScanHLine(-10.5, -1.6, 17, -0.9, config.mission.speed or 0.1, config.mission.omega or 0.2))
 
     logger.info("Starting mission control for %s", control)
 
     plot = Plot()
-    plot.add_shape(fence, facecolor="none", edgecolor="red")
+    plot.add_shape(config.fence, facecolor="khaki") # Entire grass
+    plot.add_shape(fence, facecolor="darkkhaki") # AOI
     plot.pause()
 
     incoming = asyncio.Queue()
@@ -313,4 +315,3 @@ if __name__ == "__main__":
     #asyncio.run(line_control(host))
     asyncio.run(mission_control(host))
     # TODO: plug simulator into outgoing -> incoming
-    
