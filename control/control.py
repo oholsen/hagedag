@@ -336,7 +336,8 @@ def FenceBumps(fence, speed, omega):
         t, state = yield StraightControl(speed, end_outside(fence))
         pc, _ = nearest_points(target, Point(state.x, state.y))
         t, state = yield PointControl(pc.x, pc.y, speed, end_inside(centroid))
-        t, state = yield TimeControl2(0, random.choice((-omega, omega)), t + 4 * random.random()) # random direction and duration
+        # random direction and duration - duration bias to scan more of area
+        t, state = yield TimeControl2(0, random.choice((-omega, omega)), t + 4 + 4 * random.random()) 
 
 
 async def simulate_line():
@@ -377,62 +378,6 @@ async def simulate_point():
             model.set_speed_omega(speed, omega)
 
 
-def FenceBumpControl(fence, speed=0.05, omega=0.2):
-    return CompositeControl2(FenceBumps(fence, speed, omega))
-
-
-async def simulate_bumps():
-    from Map import load
-    model = RobotModel(State(1, 1, 0, 0))
-    fence = load("garden.yaml")
-    control = FenceBumpControl(fence)
-    plot = Plot(frames_per_plot=10)
-    plot.add_shape(fence, facecolor="none", edgecolor="red")
-    # plot.pause()
-    # input("Press Enter to continue...") # for screen recording
-    dt = 1
-    t = 0.0
-    state = model.get_state()
-    plot.update(state)
-    while not control.end(t, state):
-        t += dt
-        model.update(dt)
-        state = model.get_state()
-        plot.update(state)
-        speed, omega = control.update(t, state)
-        if speed is not None and omega is not None:
-            model.set_speed_omega(speed, omega)
-
-
-async def simulate_scanhline():
-    from Map import load_mission, load_garden
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots()
-    fig.set_size_inches(20, 8)
-
-    mission = load_mission("mission.yaml")
-    fence = load_garden(mission.garden)
-
-    model = RobotModel(State(1, 1, 0, 0))
-    control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, mission.speed, mission.omega))
-    plot = Plot(frames_per_plot=10)
-    plot.add_shape(fence, facecolor="none", edgecolor="red")
-    dt = 1
-    t = 0.0
-    state = model.get_state()
-    plot.update(state)
-    while not control.end(t, state):
-        t += dt
-        model.update(dt)
-        state = model.get_state()
-        plot.update(state)
-        speed, omega = control.update(t, state)
-        if speed is not None and omega is not None:
-            model.set_speed_omega(speed, omega)
-
-
-
 """
 
 M: t1, u -> t2, u, z
@@ -448,11 +393,10 @@ stream u from "control"
 """
 
 
+
 def main():
     # asyncio.run(simulate_line())
-    # asyncio.run(simulate_point())
-    # asyncio.run(simulate_bumps())
-    asyncio.run(simulate_scanhline())
+    asyncio.run(simulate_point())
 
 
 if __name__ == "__main__":

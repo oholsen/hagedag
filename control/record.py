@@ -8,6 +8,7 @@ import GPS
 import RobotState
 import play
 import control
+from state import State
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ async def from_gps(host):
         await asyncio.sleep(1)
 
 
-async def gps_connection(host, incoming):
+async def gps_connection(host, incoming: asyncio.Queue):
     import re
     log_filter = re.compile(r".G.(RMC|GGA|VTG).*")
     while True:
@@ -128,7 +129,7 @@ async def gps_connection(host, incoming):
         await asyncio.sleep(2)
 
 
-async def incoming_consumer(incoming):
+async def incoming_consumer(incoming: asyncio.Queue):
     while True:
         t, m = await incoming.get()
         print("INCOMING", t, m)
@@ -177,7 +178,7 @@ async def record(host):
 async def incoming_generator(incoming):
     while True:
         t, m = await incoming.get()
-        # logger.debug("incoming %r %r", t, m)
+        logger.debug("incoming %r %r", t, m)
         yield t, m
         incoming.task_done()
 
@@ -217,8 +218,8 @@ async def line_control(host, yaw=0, speed=0):
     # plot = Plot()
 
     # incoming -> track -> control -> outgoing
-    async for state in play.track(incoming_generator(incoming), yaw, speed):
-        t = time.time()
+    async for t, state in play.track(incoming_generator(incoming), yaw, speed):
+        # t = time.time()
         # plot.update(state)
         speed, omega = _control.update(t, state)
         if speed is not None:
@@ -231,48 +232,55 @@ async def line_control(host, yaw=0, speed=0):
             await outgoing.put((t, m))
 
 
-async def fencebump_control(host, yaw=0, speed=0):
-    from fencebump import bump2, load
-
-    fence = load("garden-test.yaml")
-    stop = asyncio.Event()
-    incoming = asyncio.Queue()
-    outgoing = asyncio.Queue()
-    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
-    tg = asyncio.create_task(gps_connection(host, incoming))
-    to = asyncio.create_task(heartbeat(outgoing))
-
-    async def send(cmd):
-        logger.info("Cmd %s", cmd)
-        await outgoing.put((datetime.utcnow(), cmd))
-
-    # incoming -> track -> control -> outgoing
-    async for state in play.track(incoming_generator(incoming), yaw, speed):
-        # logger.info("bump state %s", state)
-        await bump2(state.x, state.y, fence, send, stop)
-
-
-async def mission_control(host, yaw=0, speed=0):
+async def mission_control(host):
     from Map import Config
     from Plotting import Plot
-    from control import CompositeControl2, ScanHLine, FenceBumpControl
+    from control import CompositeControl2, ScanHLine, FenceBumps
     from shapely.geometry import box
 
     config = Config("mission.yaml")
     fence = config.fence.intersection(config.aoi)
-    # control = FenceBumpControl(fence, config.mission.speed or 0.05, config.mission.omega or 0.2)
-    # control = CompositeControl2(ScanHLine(-10, -4.5, 13, -1.5, config.mission.speed or 0.1, config.mission.omega or 0.2)) # midten
-    # control = CompositeControl2(ScanHLine(-10.5, -1.6, 17, -0.9, config.mission.speed or 0.1, config.mission.omega or 0.2)) # roser
-    # control = CompositeControl2(ScanHLine(-10, -7.5, -1, -4, config.mission.speed or 0.1, config.mission.omega or 0.2)) # slackline - gml gran
-    control = CompositeControl2(ScanHLine(-10, -9, -6, -4, config.mission.speed or 0.1, config.mission.omega or 0.1)) # slackline - paere
+    speed = config.mission.speed or 0.05
+    omega = config.mission.omega or 0.2
 
+    controls = FenceBumps(fence, speed, omega)
+    # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten
+    # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser
+    # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
+    # controls = ScanHLine(-10, -9, -6, -4, speed, omega) # slackline - paere
+
+    control = CompositeControl2(controls)
     logger.info("Starting mission control for %s", control)
 
-    plot = Plot()
+    simulation = True
+    plot = Plot(frames_per_plot=simulation and 10 or 1)
     plot.add_shape(config.fence, facecolor="khaki") # Entire grass
     plot.add_shape(fence, facecolor="darkkhaki") # AOI
     plot.pause()
 
+    if simulation:
+        simulated_control(control, plot)
+    else:
+        await realtime_control(control, plot)
+
+
+def simulated_control(control, plot):
+    from RobotModel import RobotModel
+    model = RobotModel(State(0, 0, 0, 0))
+    dt = 1
+    t = 0.0
+    state = model.get_state()
+    plot.update(state)
+    while not control.end(t, state):
+        t += dt
+        state = model.update(dt)
+        plot.update(state)
+        speed, omega = control.update(t, state)
+        if speed is not None and omega is not None:
+            model.set_speed_omega(speed, omega)
+
+
+async def realtime_control(control, plot):
     incoming = asyncio.Queue()
     outgoing = asyncio.Queue()
     # Keep references to tasks to avoid them being stopped instantly
@@ -315,5 +323,5 @@ if __name__ == "__main__":
     #asyncio.run(track(host))
     #asyncio.run(track2(host))
     #asyncio.run(line_control(host))
-    asyncio.run(mission_control(host))
+    asyncio.run(mission_control(host), debug=True)
     # TODO: plug simulator into outgoing -> incoming

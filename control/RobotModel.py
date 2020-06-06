@@ -26,6 +26,16 @@ class RobotModel:
         self.state.x += dx_dt * dt
         self.state.y += dy_dt * dt
         self.state.theta += self.omega * dt
+        return self.state
 
     def get_state(self) -> State:
         return self.state
+
+    def command(self, cmd: RobotState.RobotCommand):
+        if isinstance(cmd, RobotState.SpeedCommand):
+            self.state.speed = cmd.speed
+        elif isinstance(cmd, RobotState.OmegaCommand):
+            self.state.omega = cmd.omega
+        elif isinstance(cmd, RobotState.StopCommand):
+            self.state.speed = 0
+            self.state.omega = 0

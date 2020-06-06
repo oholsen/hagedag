@@ -212,7 +212,7 @@ class StopCommand(RobotCommand):
     def __str__(self):
         return "."
 
-class ResetCommand(RobotCommand):
+class ResetCommand(StopCommand):
     def __str__(self):
         return "!"
 
