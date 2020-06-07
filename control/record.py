@@ -232,38 +232,6 @@ async def line_control(host, yaw=0, speed=0):
             await outgoing.put((t, m))
 
 
-async def mission_control(host):
-    from Map import Config
-    from Plotting import Plot
-    from control import CompositeControl2, ScanHLine, FenceBumps
-    from shapely.geometry import box
-
-    config = Config("mission.yaml")
-    fence = config.fence.intersection(config.aoi)
-    speed = config.mission.speed or 0.05
-    omega = config.mission.omega or 0.2
-
-    controls = FenceBumps(fence, speed, omega)
-    # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten
-    # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser
-    # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
-    # controls = ScanHLine(-10, -9, -6, -4, speed, omega) # slackline - paere
-
-    control = CompositeControl2(controls)
-    logger.info("Starting mission control for %s", control)
-
-    simulation = True
-    plot = Plot(frames_per_plot=simulation and 10 or 1)
-    plot.add_shape(config.fence, facecolor="khaki") # Entire grass
-    plot.add_shape(fence, facecolor="darkkhaki") # AOI
-    plot.pause()
-
-    if simulation:
-        simulated_control(control, plot)
-    else:
-        await realtime_control(control, plot)
-
-
 def simulated_control(control, plot):
     from RobotModel import RobotModel
     model = RobotModel(State(0, 0, 0, 0))
@@ -280,7 +248,7 @@ def simulated_control(control, plot):
             model.set_speed_omega(speed, omega)
 
 
-async def realtime_control(control, plot):
+async def realtime_control(host, control, plot):
     incoming = asyncio.Queue()
     outgoing = asyncio.Queue()
     # Keep references to tasks to avoid them being stopped instantly
@@ -289,7 +257,7 @@ async def realtime_control(control, plot):
     # to = asyncio.create_task(heartbeat(outgoing))
 
     # incoming -> track -> control -> outgoing
-    async for state in play.track(incoming_generator(incoming), yaw, speed):
+    async for state in play.track(incoming_generator(incoming), 0, 0):
         t = time.time()
         plot.update(state)
         # continue
@@ -313,15 +281,54 @@ async def realtime_control(control, plot):
             await outgoing.put((t, m))
 
 
+
+
+async def mission_control(host):
+    from Map import Config
+    from Plotting import Plot
+    from control import CompositeControl2, ScanHLine, FenceBumps, RingControls, FenceShrink
+    from shapely.geometry import box
+
+    config = Config("mission.yaml")
+    if config.aoi:
+        fence = config.fence.intersection(config.aoi)
+    else:
+        fence = config.fence
+    speed = config.mission.speed or 0.05
+    omega = config.mission.omega or 0.2
+
+    # controls = FenceBumps(fence, speed, omega)
+    # controls = RingControls(fence.exterior.coords, speed, omega)
+    controls = FenceShrink(fence, speed, omega)
+    # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten
+    # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser
+    # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
+    # controls = ScanHLine(-10, -9, -6, -4, speed, omega) # slackline - paere
+
+    control = CompositeControl2(controls)
+    logger.info("Starting mission control for %s", controls)
+
+    simulation = host is None
+    plot = Plot(frames_per_plot=simulation and 50 or 1)
+    plot.add_shape(config.fence, facecolor="khaki") # Entire grass
+    plot.add_shape(fence, facecolor="darkkhaki") # AOI
+    plot.pause()
+
+    if simulation:
+        simulated_control(control, plot)
+    else:
+        await realtime_control(host, control, plot)
+    plot.pause()
+    plot.show()
+
 if __name__ == "__main__":
     import sys, yaml
     import logging.config
     with open("record.yaml") as f:
         logging.config.dictConfig(yaml.full_load(f))
-    host = len(sys.argv) > 1 and sys.argv[1] or "192.168.1.136"
+    host = len(sys.argv) > 1 and sys.argv[1] or None
     #asyncio.run(record(host))
     #asyncio.run(track(host))
     #asyncio.run(track2(host))
     #asyncio.run(line_control(host))
     asyncio.run(mission_control(host), debug=True)
-    # TODO: plug simulator into outgoing -> incoming

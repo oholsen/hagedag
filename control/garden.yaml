@@ -14,7 +14,7 @@ limit:
   - x: 16 # litt forbi sville hjørne
     y: -0.3
 
-  - x: 17
+  - x: 17.3
     y: 2
 
   - x: 18 

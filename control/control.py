@@ -67,9 +67,10 @@ class CompositeControl2(Control):
         assert self.control is not None
         # log.debug("Composite update %s %f %s", self.control, t, state)
         while self.control.end(t, state):
+            # log.debug("Composite end %s %f %s", self.control, t, state)
             try:
                 self.control = self.controls.send((t, state))
-            except StopAsyncIteration:
+            except (StopAsyncIteration, StopIteration):
                 log.info("Stopped CompositeControl2")
                 self.control = None
                 return None, None
@@ -158,14 +159,13 @@ class HLineControl(Control):
         return self.right == (state.x >= self.end_x)
 
 
-
-
 class PointControl(Control):
 
-    def __init__(self, x: float, y: float, speed: float, end):
+    def __init__(self, x: float, y: float, speed: float, omega: float, end):
         self.x = x
         self.y = y
         self.speed = speed
+        self.omega = omega
         self._end = end
 
     def __str__(self):
@@ -179,9 +179,12 @@ class PointControl(Control):
         dtheta = norm_angle(theta - state.theta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
         speed = self.speed * math.exp(-abs(5*dtheta)**2)
+        # reduce speed near point since 1s update rate can overshoot
+        d = math.hypot(dx, dy)
+        if d < 2 * speed: # two seconds
+            speed = min(speed, d + 0.02)
         # relax towards desired _theta
-        # omega = 0.2 * dtheta
-        omega = math.copysign(min(abs(dtheta), 0.3), dtheta)
+        omega = math.copysign(min(abs(dtheta), self.omega), dtheta)
         return speed, omega
 
     def end(self, t: float, state: State) -> bool:
@@ -195,6 +198,14 @@ def distance(x, y, r):
         d = math.hypot(dx, dy)
         return d < r
     return d
+
+
+def nearest(x0, y0, x1, y1):
+    def end(t: float, state: State):
+        d0 = math.hypot(x0 - state.x, y0 - state.y)
+        d1 = math.hypot(x1 - state.x, y1 - state.y)
+        return d1 <= d0
+    return end
 
 
 class TimeControl(Control):
@@ -264,7 +275,7 @@ class ArcControl(Control):
             self.dtheta_last = dtheta
             return False
 
-        if abs(dtheta) < 0.5:
+        if abs(dtheta) < 0.9:
             if self.dtheta_last < 0 and dtheta >= 0: return True
             if self.dtheta_last > 0 and dtheta <= 0: return True
         self.dtheta_last = dtheta
@@ -335,9 +346,52 @@ def FenceBumps(fence, speed, omega):
     while True:
         t, state = yield StraightControl(speed, end_outside(fence))
         pc, _ = nearest_points(target, Point(state.x, state.y))
-        t, state = yield PointControl(pc.x, pc.y, speed, end_inside(centroid))
+        t, state = yield PointControl(pc.x, pc.y, speed, omega, end_inside(centroid))
         # random direction and duration - duration bias to scan more of area
         t, state = yield TimeControl2(0, random.choice((-omega, omega)), t + 4 + 4 * random.random()) 
+
+
+def RingControls(coords, speed, omega):
+    # Note: short lines in curved corners
+    # TODO: seed with current robot position!
+    # Ie make it a proper (composite) control!?
+    x0, y0 = coords[0]
+    yield PointControl(x0, y0, speed, omega, distance(x0, y0, 0.2))
+    for x, y in coords[1:]:
+        # x1,y1 is x0,y0 mirrored around perpendicular at x,y - crossing perpendicular when closer to x1,y1
+        x1 = x + x - x0
+        y1 = y + y - y0
+        yield PointControl(x, y, speed, omega, nearest(x0, y0, x1, y1))
+        x0 = x
+        y0 = y
+
+
+def FenceShrink(fence, speed, omega):
+    coords = fence.exterior.coords
+    lap = 0
+    while fence.area > 0.1:
+        log.info("FenceShrink lap %d area %g", lap, fence.area)
+        for c in RingControls(coords, speed, omega):
+            t, state = yield c
+            # if lap >= 4: return
+        fence = fence.buffer(-0.15, join_style=2)
+        # TODO: turns into a multipolygon object...
+        # Reshuffle exterior points to make sure starting point of new shape is not very different from the current one.
+        # Find nearest point and start there.
+        # print("BUFFER", list(fence.exterior.coords))
+        l = [(math.hypot(state.x - x, state.y - y), i, x, y) for i, (x, y) in enumerate(fence.exterior.coords)]
+        l.sort()
+        # print("NEAREST", state, l[:3])
+        # print("EXTERIOR", list(fence.exterior.coords))
+        assert fence.exterior.coords[0] == fence.exterior.coords[-1]
+        d, i = min((math.hypot(state.x - x, state.y - y), i) for i, (x, y) in enumerate(fence.exterior.coords[:-1]))
+        assert d < 0.5
+        coords = fence.exterior.coords[i:-1] + fence.exterior.coords[:i]
+        coords.append(coords[0])
+        # print("COORDS", coords)
+        # print(len(coords), len(fence.exterior.coords))
+        assert len(coords) == len(fence.exterior.coords)
+        lap += 1
 
 
 async def simulate_line():
@@ -362,7 +416,7 @@ async def simulate_point():
     model = RobotModel(State(1, 1, 0, 0))
     x = -5
     y = 2
-    control = PointControl(x, y, 0.2, distance(x, y, 0.4))
+    control = PointControl(x, y, 0.2, 0.2, distance(x, y, 0.4))
     plot = Plot()
     dt = 0.1
     t = 0.0
@@ -391,7 +445,6 @@ stream s_est from "tracking"
 stream u from "control"
 
 """
-
 
 
 def main():

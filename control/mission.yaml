@@ -1,4 +1,16 @@
-aoi:
+aoi1: # dokkestove
+  - x: 4
+    y: -20
+  - x: 12
+    y: -4.5
+
+aoi-garasje: # garasje
+  - x: 16
+    y: -20
+  - x: 20
+    y: 20
+
+aoi-busker:
   - x: -20
     y: -2
   - x: -9
@@ -11,6 +23,6 @@ aoi-dukkestue:
     y: -20
 
 battery_cutoff: 10
-speed: 0.05
-omega: 0.15
+speed: 0.2
+omega: 0.12
 garden: garden.yaml

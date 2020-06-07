@@ -98,13 +98,6 @@ omega = -rotation # deg/s
 """
 
 
-class Battery(FromRobot):
-    def __init__(self, segments):
-        self.volts = float(segments[1])
-
-    def __str__(self):
-        return f"Battery({self.volts})"
-
 class Translate(FromRobot):
     def __init__(self, speed: float):
         # argument is [-20..20]

@@ -3,7 +3,7 @@ from matplotlib.path import Path
 from matplotlib.patches import PathPatch, Circle
 import matplotlib.pyplot as plt
 import jsonobject
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import Point, Polygon, box, LineString, MultiLineString
 from shapely.ops import nearest_points
 
 
@@ -19,6 +19,14 @@ def polygon_pathpatch(points, **kwargs):
 def shape_to_patch(shape, **kwargs):
     return polygon_pathpatch(list(shape.exterior.coords)[1:], **kwargs)    
 
+def lines_to_patch(lines, **kwargs):
+    path_data = []
+    for line in lines:
+        path_data.append((Path.MOVETO, line.coords[0]))
+        path_data.append((Path.LINETO, line.coords[1]))
+    codes, verts = zip(*path_data)
+    path = Path(verts, codes)
+    return PathPatch(path, **kwargs)
 
 def load_garden(filename) -> Polygon:
     config = jsonobject.load(open(filename))
@@ -55,10 +63,14 @@ def main():
     fence = load_garden(mission.garden)
     aoi = aoi_from_config(mission)
 
+    print("Fence area", fence.area)
     ax.add_patch(shape_to_patch(fence, facecolor='None', edgecolor='red'))
     centroid = fence.buffer(-0.5)
+    #centroid = fence.buffer(-0.5, join_style=2)
     ax.add_patch(shape_to_patch(centroid, facecolor='khaki'))
    
+    ring = centroid.exterior
+    print("centroid exterior", ring.length, len(ring.coords))
     fence_new = load_garden("garden-new.yaml")
     ax.add_patch(shape_to_patch(fence_new, facecolor='None', edgecolor='yellow'))
 
@@ -75,9 +87,31 @@ def main():
     ax.add_patch(Circle((pc.x, pc.y), 0.2))
     # Reduce the centroid slightly to find direction, then just centroid for testing if it is inside
 
+    p = Point(5.5, -6.6)
+    pc, _ = nearest_points(ring, p)
+    ax.add_patch(Circle((pc.x, pc.y), 0.2))
+
+
+    x0 = -20
+    x1 = 20
+    y = -10
+    dy = 0.14
+    lines = []
+    while y < 10:
+        line = LineString([(x0, y), (x1, y)])
+        line = line.intersection(fence)
+        if not line.is_empty:
+            if isinstance(line, MultiLineString):
+                lines.extend(line.geoms)
+            else:
+                lines.append(line)
+        y += dy
+    # print(lines)
+    ax.add_patch(lines_to_patch(lines))
+
     ax.set_aspect('equal', 'box')
     ax.grid(True)
-    # ax.set_title('A compound path')
+    # ax.set_title('Garden')
     ax.autoscale_view()
     plt.show()
 

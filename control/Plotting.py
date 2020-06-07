@@ -22,6 +22,7 @@ class Plot():
         self.frames_per_plot = frames_per_plot
 
     def show(self):
+        self.render()
         plt.show()
 
     def pause(self):
@@ -37,19 +38,19 @@ class Plot():
         self.patches.append(PathPatch(path, **kwargs))
 
     def update(self, state: State):
-        self.plot(state.x, state.y, state.speed, state.theta)
-
-    def plot(self, x, y, speed, theta):
-        self.x.append(x)
-        self.y.append(y)
-        self.speed.append(speed)
-        self.theta.append(theta)
+        self.state = state        
+        self.x.append(state.x)
+        self.y.append(state.y)
+        self.speed.append(state.speed)
+        self.theta.append(state.theta)
 
         self.frame += 1
         if self.frame < self.frames_per_plot:
             return
         self.frame = 0
+        self.render()
 
+    def render(self):
         self.ax.cla()
         self.ax.set_aspect('equal', 'box')
         self.ax.grid(True)
@@ -58,10 +59,10 @@ class Plot():
 
         # ax.set_title('Garden Map')
         # self.ax.autoscale_view()
-        self.ax.add_patch(Circle((x, y), 0.15))
+        self.ax.add_patch(Circle((self.state.x, self.state.y), 0.15))
         a = 1  # * speed
-        self.ax.arrow(x, y, a * cos(theta), a * sin(theta), zorder=2) # top
+        self.ax.arrow(self.state.x, self.state.y, a * cos(self.state.theta), a * sin(self.state.theta), zorder=2) # top
         self.ax.plot(self.x, self.y, ".b", label="trajectory", zorder=1) # bottom
 
+        # GUI event loop
         plt.pause(0.001)
-        #plt.show()
