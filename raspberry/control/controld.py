@@ -51,7 +51,8 @@ async def measure_current():
             msg = f"IV {i1:.3f} {i2:.3f} {i3:.3f} {v_bat:.3f}\n"
             await broadcast(msg)
         except Exception as e:
-            await broadcast("ERROR measure current: %s" % e)
+            await broadcast("ERROR measure current: %s\n" % e)
+            break
 
 
 async def handle(ws, path, writer):

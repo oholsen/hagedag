@@ -1,6 +1,6 @@
 # README
 
-# Architecture
+## Architecture
 
 
 Python code: A bridge between HTTP and serial communication.
@@ -21,3 +21,4 @@ $ light-server -s . -w gui/**
 // No auto refresh:
 $ npm install connect serve-static
 $ node server.js
+
