@@ -72,7 +72,7 @@ def main():
     ring = centroid.exterior
     print("centroid exterior", ring.length, len(ring.coords))
     fence_new = load_garden("garden-new.yaml")
-    ax.add_patch(shape_to_patch(fence_new, facecolor='None', edgecolor='yellow'))
+    ax.add_patch(shape_to_patch(fence_new, facecolor='None', edgecolor='orange'))
 
     if aoi:
         print("fence", fence)
@@ -107,7 +107,7 @@ def main():
                 lines.append(line)
         y += dy
     # print(lines)
-    ax.add_patch(lines_to_patch(lines))
+    # ax.add_patch(lines_to_patch(lines))
 
     ax.set_aspect('equal', 'box')
     ax.grid(True)

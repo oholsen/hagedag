@@ -5,7 +5,7 @@ aoi:
     y: 10
 
 limit:
-  - x: -3.5  # hekkehjørne
+  - x: -3.2  # hekkehjørne
     y: -1
 
   - x: 3 # forbi rosene
@@ -45,10 +45,10 @@ limit:
     y: -6.7
 
   - x: 4.1 # sandkasse BL
-    y: -5.2
+    y: -4.9 # crash on fenceshrink with -5.2
 
   - x: 2.0 # sandkasse BR
-    y: -5.2
+    y: -4.9
 
   - x: 2.0 # sandkasse BR
     y: -5.7
@@ -65,16 +65,36 @@ limit:
   - x: -3 # til ny gran
     y: -7.5
 
+  - x: -5.5 # ny gran
+    y: -7.5
+
+  - x: -5.5 # bak til kompost
+    y: -9.5
+
+  - x: -11 # til rododendron
+    y: -9.5
+
   - x: -11 # under midten av slacklina
     y: -7.5
 
   - x: -11.6 # rosa
     y: -4
 
-  - x: -11.2 # epletre - er 0.5m nærmere midten enn rosa
-    y: 0
+  # epletre - 0.5m nærmere midten enn rosa, på y=0
+  - x: -11.6
+    y: -0.5
 
-  - x: -12 # rabarbrahjørne
+  - x: -11.2
+    y: -0.3
+
+  - x: -11.2
+    y: 0.3
+
+  - x: -11.5
+    y: 0.5
+
+  # rabarbrahjørne
+  - x: -12
     y: 4
 
   - x: -11 # hjørne mellom rips og trapp
@@ -102,5 +122,5 @@ limit:
   - x: -9.8 # hjørne hekk
     y: -0.4 # litt til...
 
-  - x: -4.8 # knekk hekk
+  - x: -3.6 # knekk hekk
     y: -0.4

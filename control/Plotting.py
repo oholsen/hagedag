@@ -20,6 +20,7 @@ class Plot():
         self.patches = []
         self.frame = 0
         self.frames_per_plot = frames_per_plot
+        self.state = None
 
     def show(self):
         self.render()
@@ -59,9 +60,10 @@ class Plot():
 
         # ax.set_title('Garden Map')
         # self.ax.autoscale_view()
-        self.ax.add_patch(Circle((self.state.x, self.state.y), 0.15))
-        a = 1  # * speed
-        self.ax.arrow(self.state.x, self.state.y, a * cos(self.state.theta), a * sin(self.state.theta), zorder=2) # top
+        if self.state:
+            self.ax.add_patch(Circle((self.state.x, self.state.y), 0.15))
+            a = 1  # * speed
+            self.ax.arrow(self.state.x, self.state.y, a * cos(self.state.theta), a * sin(self.state.theta), zorder=2) # top
         self.ax.plot(self.x, self.y, ".b", label="trajectory", zorder=1) # bottom
 
         # GUI event loop

@@ -369,15 +369,21 @@ def RingControls(coords, speed, omega):
 def FenceShrink(fence, speed, omega):
     coords = fence.exterior.coords
     lap = 0
-    while fence.area > 0.1:
+    # TODO: yield a dummy control with end() -> True to get initial state
+    while True:
         log.info("FenceShrink lap %d area %g", lap, fence.area)
         for c in RingControls(coords, speed, omega):
             t, state = yield c
-            # if lap >= 4: return
         fence = fence.buffer(-0.15, join_style=2)
-        # TODO: turns into a multipolygon object...
+        if fence.area < 0.1:
+            # also covers area==0 with no coords
+            log.info("FenceShrink completed")
+            break
+        # TODO: sometimes turns into a multipolygon object on buffer... Pick the closest one (if any) and queue the others....
         # Reshuffle exterior points to make sure starting point of new shape is not very different from the current one.
         # Find nearest point and start there.
+        # Could also have found nearest point on shape and created addition point.
+        # print("AREA", fence.area)
         # print("BUFFER", list(fence.exterior.coords))
         l = [(math.hypot(state.x - x, state.y - y), i, x, y) for i, (x, y) in enumerate(fence.exterior.coords)]
         l.sort()
@@ -385,11 +391,13 @@ def FenceShrink(fence, speed, omega):
         # print("EXTERIOR", list(fence.exterior.coords))
         assert fence.exterior.coords[0] == fence.exterior.coords[-1]
         d, i = min((math.hypot(state.x - x, state.y - y), i) for i, (x, y) in enumerate(fence.exterior.coords[:-1]))
-        assert d < 0.5
+        if d > 1:
+            log.error("Distance to nearest point: %g", d)
+            log.info("Points: %r", list(fence.exterior.coords))
+            break
+        assert d <= 1
         coords = fence.exterior.coords[i:-1] + fence.exterior.coords[:i]
         coords.append(coords[0])
-        # print("COORDS", coords)
-        # print(len(coords), len(fence.exterior.coords))
         assert len(coords) == len(fence.exterior.coords)
         lap += 1
 

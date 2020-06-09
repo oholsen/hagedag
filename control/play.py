@@ -177,7 +177,7 @@ class RobotStateFeed(object):
             logger.debug("BATTERY %s", o)
             self.battery = o
             # TODO: configurable threshold - eg global config "dep injection"
-            self.battery_ok = self.battery.volts > 10
+            self.battery_ok = self.battery.voltage > 10
             return
 
 

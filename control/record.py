@@ -178,7 +178,7 @@ async def record(host):
 async def incoming_generator(incoming):
     while True:
         t, m = await incoming.get()
-        logger.debug("incoming %r %r", t, m)
+        # logger.debug("incoming %r %r", t, m)
         yield t, m
         incoming.task_done()
 
@@ -281,13 +281,28 @@ async def realtime_control(host, control, plot):
             await outgoing.put((t, m))
 
 
+def replay(file, plot):
+    i = 0
+    for line in file:
+        t = line[:23]
+        line = line.strip()
+        cols = line.split()
+        if len(cols) >= 9 and cols[4] == "STATE":
+            state = State(*map(float, cols[5:]))
+            print(t, state)
+            plot.update(state)
+            i = 0
+        else:
+            i += 1
+            if i > 1000:
+                print(line)
+                i = 0
 
 
-async def mission_control(host):
+async def mission_control(host, filename):
     from Map import Config
     from Plotting import Plot
     from control import CompositeControl2, ScanHLine, FenceBumps, RingControls, FenceShrink
-    from shapely.geometry import box
 
     config = Config("mission.yaml")
     if config.aoi:
@@ -300,6 +315,7 @@ async def mission_control(host):
     # controls = FenceBumps(fence, speed, omega)
     # controls = RingControls(fence.exterior.coords, speed, omega)
     controls = FenceShrink(fence, speed, omega)
+    # controls = FenceShrink(fence.buffer(-0.2, join_style=2), speed, omega)
     # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten
     # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser
     # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
@@ -308,14 +324,16 @@ async def mission_control(host):
     control = CompositeControl2(controls)
     logger.info("Starting mission control for %s", controls)
 
-    simulation = host is None
-    plot = Plot(frames_per_plot=simulation and 50 or 1)
+    plot = Plot(frames_per_plot=host is None and 50 or 1)
     plot.add_shape(config.fence, facecolor="khaki") # Entire grass
     plot.add_shape(fence, facecolor="darkkhaki") # AOI
     plot.pause()
 
-    if simulation:
-        simulated_control(control, plot)
+    if host is None:
+        if filename:
+            replay(open(filename), plot)
+        else:
+            simulated_control(control, plot)
     else:
         await realtime_control(host, control, plot)
     plot.pause()
@@ -323,12 +341,16 @@ async def mission_control(host):
 
 if __name__ == "__main__":
     import sys, yaml
+    from os import path
     import logging.config
     with open("record.yaml") as f:
         logging.config.dictConfig(yaml.full_load(f))
-    host = len(sys.argv) > 1 and sys.argv[1] or None
-    #asyncio.run(record(host))
-    #asyncio.run(track(host))
-    #asyncio.run(track2(host))
-    #asyncio.run(line_control(host))
-    asyncio.run(mission_control(host), debug=True)
+    arg = len(sys.argv) > 1 and sys.argv[1] or None
+    host = None
+    filename = None
+    if arg:
+        if path.exists(arg):
+            filename = arg
+        else:
+            host = arg
+    asyncio.run(mission_control(host, filename), debug=True)
