@@ -6,6 +6,7 @@ from abc import ABC
 
 WHEEL_BASE         = 0.3300 # m
 DIST_PER_WHEEL_REV = 0.3864 # m
+MAX_SPEED          = 0.15 # m/s, probably slightly higher, but to guarantee heading...
 
 """
 Calibration on office floor:

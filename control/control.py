@@ -3,13 +3,12 @@ import math
 from math import sin, cos, pi
 import cmath
 from dataclasses import dataclass, replace
-import numpy as np
 import logging
 import time
 import random
+import RobotState
 from state import State
 from PID import PID
-from RobotModel import RobotModel
 from Plotting import Plot
 from abc import ABC
 from shapely.geometry import Point, Polygon
@@ -21,37 +20,21 @@ log = logging.getLogger(__name__)
 
 class Control(ABC):
 
-    def update(self, t: float, state): # -> (speed, omega)
-        # state vectors [x y yaw v]'
+    def update(self, t: float, state: State): # -> (speed, omega)
         return None, None
 
     def end(self, t: float, state) -> bool:
         return False
 
 
-class CompositeControl(Control):
-    """Use sequence of controls, end() on the current control triggers using next control"""
+class GetStateControl(Control):
+    """Terminates immediately just to get current state"""
 
-    def __init__(self, controls):
-        self.controls = iter(controls)
-        self.control = next(self.controls)
-        log.info("Starting %s", self.control)
-
-    def update(self, t: float, state): # -> (speed, omega)
-        # state vectors [x y yaw v]'
-        assert self.control is not None
-        log.debug("Composite update %s %f %s", self.control, t, state)
-        while self.control.end(t, state):
-            try:
-                self.control = next(self.controls)
-            except StopAsyncIteration:
-                self.control = None
-                return None, None
-            log.info("Starting %s %s", t, self.control)
-        return self.control.update(t, state)
+    def update(self, t: float, state: State): # -> (speed, omega)
+        assert False
 
     def end(self, t: float, state) -> bool:
-        return self.control is None
+        return True
 
 
 class CompositeControl2(Control):
@@ -63,7 +46,6 @@ class CompositeControl2(Control):
         log.info("Starting %s", self.control)
 
     def update(self, t: float, state: State): # -> (speed, omega)
-        # state vectors [x y yaw v]'
         assert self.control is not None
         # log.debug("Composite update %s %f %s", self.control, t, state)
         while self.control.end(t, state):
@@ -124,7 +106,6 @@ class HLineControl(Control):
         self.pid.clear()
 
     def update(self, t: float, state: State): # -> (speed, omega)
-        # state vectors [x y yaw v]'
         d = self.y - state.y
         # angle is 90 for large d
         theta = (pi/2) * (1 - math.exp(-(2*d)**2))
@@ -172,7 +153,6 @@ class PointControl(Control):
         return f"PointControl({self.x},{self.y})"
 
     def update(self, t: float, state: State): # -> (speed, omega)
-        # state vectors [x y yaw v]'
         dx = self.x - state.x
         dy = self.y - state.y
         theta = math.atan2(dy, dx)
@@ -248,6 +228,10 @@ class TimeControl2(Control):
 
 
 def start_arc(radius, speed, direction):
+    # speed may be too high for outer motor in tight turn
+    # outer motor speed is speed + omega * wheelbase / 2
+    # max_speed_of_motor = speed + speed * wheelbase / radius / 2
+    speed = min(speed, RobotState.MAX_SPEED / (1 + 0.5 * RobotState.WHEEL_BASE / radius))
     omega = speed / radius
     if not direction:
         omega = -omega
@@ -266,6 +250,8 @@ class ArcControl(Control):
         return f"ArcControl({self.end_theta})"
 
     def update(self, t: float, state: State): # -> (speed, omega)
+        # TODO: slow down (both!) near end state such that it just overshoots
+        # zero crossing on the next update
         return self.speed, self.omega
 
     def end(self, t: float, state: State) -> bool:
@@ -282,29 +268,19 @@ class ArcControl(Control):
         return False
 
 
-"""
-Program:
-
-Based on coordinates in garden
-hline_y = ...
-hline_x0, x1 = ...
-
-direction = based on initial position: right if x < (hline_x0 + hline_x1)/2 midpoint
-hline -> random rot -> random line -> random rot 
-swap direction
-"""
-
-def LineTest(x, y, xl, xr, y0):
-    right = x < (xl + xr) / 2    
+def LineTest(xl, xr, y0):
     end_x = {True: xr, False: xl}
     speed_max = 0.20
     omega_max = 0.20
+    t, state = yield GetStateControl()
+    right = state.x < (xl + xr) / 2    
     while True:
-        yield HLineControl(y0, right, end_x[right])
-        yield TimeControl(0, omega_max * random.uniform(-1, 1), 3)
-        yield TimeControl(speed_max * random.uniform(0.1, 1), 0, 4)
-        yield TimeControl(0, omega_max * random.uniform(-1, 1), 3)
+        t, state = yield HLineControl(y0, right, end_x[right])
+        t, state = yield TimeControl(0, omega_max * random.uniform(-1, 1), t + 3)
+        t, state = yield TimeControl(speed_max * random.uniform(0.1, 1), 0, t + 4)
+        t, state = yield TimeControl(0, omega_max * random.uniform(-1, 1), t + 3)
         right = not right
+
 
 def ScanHLine(x0, y0, x1, y1, speed, omega):
     assert x1 > x0
@@ -316,14 +292,15 @@ def ScanHLine(x0, y0, x1, y1, speed, omega):
     end_theta = {True: 0, False: pi}
     while True:
         # TODO: dummy first control, with end() just to get state?
-        t, state = yield HLineControl(y, right, end_x[right])
+        yield HLineControl(y, right, end_x[right])
         y += dy
         right = not right
         if y > y1: 
             y = y0
         else:
+            # speed may be too high for outer motor in tight turn
             s, o = start_arc(dy/2, speed, right)
-            t, state = yield ArcControl(s, -o, end_theta[right])
+            yield ArcControl(s, -o, end_theta[right])
 
 
 def end_inside(poly: Polygon):
@@ -353,15 +330,20 @@ def FenceBumps(fence, speed, omega):
 
 def RingControls(coords, speed, omega):
     # Note: short lines in curved corners
-    # TODO: seed with current robot position!
+    # TODO: seed with current robot position! yield dummy control to get t, state
     # Ie make it a proper (composite) control!?
     x0, y0 = coords[0]
     yield PointControl(x0, y0, speed, omega, distance(x0, y0, 0.2))
+    # aim a little beyond the desired point to make sure it crosses the line before turning wildly to reach the point        
+    ahead = 0.2 # meters
     for x, y in coords[1:]:
         # x1,y1 is x0,y0 mirrored around perpendicular at x,y - crossing perpendicular when closer to x1,y1
-        x1 = x + x - x0
-        y1 = y + y - y0
-        yield PointControl(x, y, speed, omega, nearest(x0, y0, x1, y1))
+        dx = x - x0
+        dy = y - y0
+        x1 = x + dx
+        y1 = y + dy
+        d = math.hypot(dx, dy)
+        yield PointControl(x + ahead * dx / d, y + ahead * dy / d, speed, omega, nearest(x0, y0, x1, y1))
         x0 = x
         y0 = y
 
@@ -369,11 +351,11 @@ def RingControls(coords, speed, omega):
 def FenceShrink(fence, speed, omega):
     coords = fence.exterior.coords
     lap = 0
-    # TODO: yield a dummy control with end() -> True to get initial state
+    _, state = yield GetStateControl()
     while True:
         log.info("FenceShrink lap %d area %g", lap, fence.area)
         for c in RingControls(coords, speed, omega):
-            t, state = yield c
+            _, state = yield c
         fence = fence.buffer(-0.15, join_style=2)
         if fence.area < 0.1:
             # also covers area==0 with no coords
@@ -402,25 +384,9 @@ def FenceShrink(fence, speed, omega):
         lap += 1
 
 
-async def simulate_line():
-    model = RobotModel(State(1, 1, 0, 0))
-    control = CompositeControl(LineTest(1, 1, -5, 5, 0))
-    plot = Plot()
-    dt = 1
-    t = 0.0
-    state = model.get_state()
-    plot.update(state)
-    while not control.end(t, state):
-        t += dt
-        model.update(dt)
-        state = model.get_state()
-        plot.update(state)        
-        speed, omega = control.update(t, state)
-        if speed is not None:
-            model.set_speed_omega(speed, omega)
-
-
+# TODO: remove, move to record.py
 async def simulate_point():
+    from RobotModel import RobotModel
     model = RobotModel(State(1, 1, 0, 0))
     x = -5
     y = 2
@@ -440,23 +406,7 @@ async def simulate_point():
             model.set_speed_omega(speed, omega)
 
 
-"""
-
-M: t1, u -> t2, u, z
-E: t2, u, z -> t2, s_est
-C: t2, s_est -> t2, u (t2 goes to M as t1)
-
-Observation delay in u
-
-stream u, z from "record"
-stream s_est from "tracking"
-stream u from "control"
-
-"""
-
-
 def main():
-    # asyncio.run(simulate_line())
     asyncio.run(simulate_point())
 
 

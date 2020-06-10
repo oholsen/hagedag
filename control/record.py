@@ -314,12 +314,14 @@ async def mission_control(host, filename):
 
     # controls = FenceBumps(fence, speed, omega)
     # controls = RingControls(fence.exterior.coords, speed, omega)
-    controls = FenceShrink(fence, speed, omega)
+    # controls = FenceShrink(fence, speed, omega)
     # controls = FenceShrink(fence.buffer(-0.2, join_style=2), speed, omega)
     # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten
     # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser
     # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
     # controls = ScanHLine(-10, -9, -6, -4, speed, omega) # slackline - paere
+
+    controls = ScanHLine(-2, -4, 2, -1, speed, omega) # test
 
     control = CompositeControl2(controls)
     logger.info("Starting mission control for %s", controls)

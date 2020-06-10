@@ -81,17 +81,17 @@ limit:
     y: -4
 
   # epletre - 0.5m nærmere midten enn rosa, på y=0
-  - x: -11.6
-    y: -0.5
-
-  - x: -11.2
-    y: -0.3
-
-  - x: -11.2
-    y: 0.3
+  - x: -11.9
+    y: -1.0
 
   - x: -11.5
-    y: 0.5
+    y: -0.8
+
+  - x: -11.5
+    y: -0.2
+
+  - x: -11.8
+    y: 0.2
 
   # rabarbrahjørne
   - x: -12
