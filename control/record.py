@@ -14,26 +14,32 @@ logger = logging.getLogger(__name__)
 
 
 async def controld_reader(websocket, incoming):
-    while True:
-        msg = await websocket.recv()
-        t = datetime.utcnow()
-        msg = msg.strip()
-        logger.debug("ROBOT %s", msg)
-        await incoming.put((t, RobotState.process(msg)))
-        # incoming.put_nowait((t, RobotState.process(msg)))
+    try:
+        while True:
+            msg = await websocket.recv()
+            t = datetime.utcnow()
+            msg = msg.strip()
+            logger.debug("ROBOT %s", msg)
+            await incoming.put((t, RobotState.process(msg)))
+            # incoming.put_nowait((t, RobotState.process(msg)))
+    except:
+        logger.exception("controld reader")
 
 
 async def controld_writer(websocket, outgoing):
-    while True:
-        tm, m = await outgoing.get() # also time to make sure not outputting old messages
-        t = datetime.utcnow()
-        if (t - tm).total_seconds() > 3:
-            logger.warning("Old controld message %s %s", tm, m)
-            continue
-        m = str(m) 
-        logger.debug("Sending controld: %s", m)
-        await websocket.send(m + "\n")
-        outgoing.task_done()
+    try:
+        while True:
+            tm, m = await outgoing.get() # also time to make sure not outputting old messages
+            t = datetime.utcnow()
+            if (t - tm).total_seconds() > 3:
+                logger.warning("Old controld message %s %s", tm, m)
+                continue
+            m = str(m) 
+            logger.debug("Sending controld: %s", m)
+            await websocket.send(m + "\n")
+            outgoing.task_done()
+    except:
+        logger.exception("controld writer")
 
 
 async def controld_connection(host, incoming, outgoing):
@@ -49,10 +55,11 @@ async def controld_connection(host, incoming, outgoing):
                     [consumer_task, producer_task],
                     return_when=asyncio.FIRST_COMPLETED
                 )
+                logger.info("Robot read/write failed, restarting...")
                 for task in pending:
                     task.cancel()                
         except:
-            logger.error("Controld connection failed", exc_info=True)
+            logger.exception("Controld connection failed")
         await asyncio.sleep(1)
 
 
@@ -70,7 +77,7 @@ async def from_controld(host):
                     logger.info("ROBOT %s", msg)
                     yield datetime.utcnow(), RobotState.process(msg)
         except:
-            logger.error("From controld failed", exc_info=True)
+            logger.exception("From controld failed")
         await asyncio.sleep(1)
 
 
@@ -200,41 +207,9 @@ async def track2(host, yaw=0, speed=0):
         logger.info("track2 %g %g %g %g", s.x, s.y, s.theta, s.speed)
 
 
-async def line_control(host, yaw=0, speed=0):
-    incoming = asyncio.Queue()
-    outgoing = asyncio.Queue()
-    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
-    tg = asyncio.create_task(gps_connection(host, incoming))
-    to = asyncio.create_task(heartbeat(outgoing))
-
-    # TODO: wait for first observation to get x0, y0
-    x0 = 0
-    y0 = -3
-
-    y = -3
-    xl = -9
-    xr = 10
-    _control = control.CompositeControl(control.LineTest(x0, y0, xl, xr, y))
-    # plot = Plot()
-
-    # incoming -> track -> control -> outgoing
-    async for t, state in play.track(incoming_generator(incoming), yaw, speed):
-        # t = time.time()
-        # plot.update(state)
-        speed, omega = _control.update(t, state)
-        if speed is not None:
-            t = datetime.utcnow()
-            m = RobotState.SpeedCommand(speed)
-            await outgoing.put((t, m))
-        if omega is not None:
-            t = datetime.utcnow()
-            m = RobotState.OmegaCommand(omega)
-            await outgoing.put((t, m))
-
-
 def simulated_control(control, plot):
     from RobotModel import RobotModel
-    model = RobotModel(State(0, 0, 0, 0))
+    model = RobotModel(State(-10, -2, 0, 0))
     dt = 1
     t = 0.0
     state = model.get_state()
@@ -248,7 +223,24 @@ def simulated_control(control, plot):
             model.set_speed_omega(speed, omega)
 
 
-async def realtime_control(host, control, plot):
+async def shutdown(loop):
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for task in tasks:
+        task.cancel() 
+    logging.info(f"Cancelling {len(tasks)} outstanding tasks")
+    await asyncio.gather(*tasks, return_exceptions=True)
+    loop.stop()
+
+
+def handle_exception(loop, context):
+    # context["message"] will always be there; but context["exception"] may not
+    msg = context.get("exception", context["message"])
+    logging.error(f"Caught exception: {msg}")
+    logging.info("Shutting down...")
+    asyncio.create_task(shutdown(loop))
+
+
+async def realtime_control(host, control, plot, cut):    
     incoming = asyncio.Queue()
     outgoing = asyncio.Queue()
     # Keep references to tasks to avoid them being stopped instantly
@@ -261,6 +253,8 @@ async def realtime_control(host, control, plot):
         t = time.time()
         plot.update(state)
         # continue
+        if control.end(t, state):
+            break
         speed, omega = control.update(t, state)
         # logger.debug("Update %s -> %r %r", state, speed, omega)
         if speed is not None:
@@ -273,7 +267,7 @@ async def realtime_control(host, control, plot):
             await outgoing.put((t, m))
         if speed is not None and omega is not None:
             t = datetime.utcnow()
-            m = RobotState.CutCommand(20)
+            m = RobotState.CutCommand(cut)
             await outgoing.put((t, m))
             # TODO: timeout on commands
             t = datetime.utcnow()
@@ -299,7 +293,7 @@ def replay(file, plot):
                 i = 0
 
 
-async def mission_control(host, filename):
+def mission_control(host, filename):
     from Map import Config
     from Plotting import Plot
     from control import CompositeControl2, ScanHLine, FenceBumps, RingControls, FenceShrink
@@ -311,17 +305,23 @@ async def mission_control(host, filename):
         fence = config.fence
     speed = config.mission.speed or 0.05
     omega = config.mission.omega or 0.2
+    cut = config.mission.cut or 20
 
     # controls = FenceBumps(fence, speed, omega)
     # controls = RingControls(fence.exterior.coords, speed, omega)
-    # controls = FenceShrink(fence, speed, omega)
-    # controls = FenceShrink(fence.buffer(-0.2, join_style=2), speed, omega)
-    # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten
+    controls = FenceShrink(fence, speed, omega)
+    # controls = FenceShrink(fence.buffer(-0.5, join_style=2), speed, omega)
+    # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten - lang
     # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser
     # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
     # controls = ScanHLine(-10, -9, -6, -4, speed, omega) # slackline - paere
-
-    controls = ScanHLine(-2, -4, 2, -1, speed, omega) # test
+    
+    # controls = ScanHLine(-8, -5, 3, -1.2, speed, omega) # midten med mest gras
+    # controls = ScanHLine(-8, -3, 3, -1.2, speed, omega) # midten med mest gras
+    # controls = ScanHLine(-11, -6, -5, -0.4, speed, omega) # mot epler
+    # controls = ScanHLine(-2, -4, 2, -1, speed, omega) # test
+    #from control import LineControlTest
+    #controls = LineControlTest()
 
     control = CompositeControl2(controls)
     logger.info("Starting mission control for %s", controls)
@@ -337,7 +337,9 @@ async def mission_control(host, filename):
         else:
             simulated_control(control, plot)
     else:
-        await realtime_control(host, control, plot)
+        asyncio.run(realtime_control(host, control, plot, cut), debug=True)
+        asyncio.run(shutdown(asyncio.get_event_loop()))
+
     plot.pause()
     plot.show()
 
@@ -347,6 +349,9 @@ if __name__ == "__main__":
     import logging.config
     with open("record.yaml") as f:
         logging.config.dictConfig(yaml.full_load(f))
+    loop = asyncio.get_event_loop()
+    loop.set_exception_handler(handle_exception)
+
     arg = len(sys.argv) > 1 and sys.argv[1] or None
     host = None
     filename = None
@@ -355,4 +360,4 @@ if __name__ == "__main__":
             filename = arg
         else:
             host = arg
-    asyncio.run(mission_control(host, filename), debug=True)
+    mission_control(host, filename)
