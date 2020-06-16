@@ -11,7 +11,7 @@ from state import State
 from PID import PID
 from Plotting import Plot
 from abc import ABC
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, MultiPolygon, LineString
 from shapely.ops import nearest_points
 
 
@@ -108,17 +108,20 @@ class HLineControl(Control):
     def update(self, t: float, state: State): # -> (speed, omega)
         d = self.y - state.y
         # angle is 90 for large d
-        theta = (pi/2) * (1 - math.exp(-(2*d)**2))
+        theta = (pi/2) * (1 - math.exp(-(d/0.1)**2))
         if d < 0:
             theta = -theta
         if not self.right:
             theta = pi - theta
         dtheta = norm_angle(theta - state.theta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
-        speed = self.speed * math.exp(-abs(5*dtheta)**2)
-        # relax towards desired _theta
-        # omega = 0.2 * dtheta
-        omega = math.copysign(min(abs(dtheta), self.omega), dtheta)
+        # also reduce speed if will overshoot in one iteration:
+        #   sin(theta) * speed * 1s <= abs(d)
+        #  speed <= abs(d) / sin(theta)
+        speed = self.speed * math.exp(-abs(4*dtheta)**2)
+        if math.sin(theta) > 0:
+            speed = min(speed, abs(d) / math.sin(theta) + 0.02)
+        omega = math.copysign(min(abs(dtheta) + 0.02, self.omega), dtheta)
         domega = 0
 
         
@@ -140,6 +143,63 @@ class HLineControl(Control):
         return self.right == (state.x >= self.end_x)
 
 
+
+class LineControl(Control):
+
+    def __init__(self, p0, p1, speed, omega):
+        self.line = LineString([p0, p1])
+        self.p0 = complex(*p0)
+        self.p1 = complex(*p1)
+        self.dp = self.p1 - self.p0
+        self.p2 = self.p1 + self.dp # p2 is p0 mirrored around p1
+        self.theta = cmath.phase(self.dp)
+        self.speed = speed
+        self.omega = omega
+        self._end = nearest(self.p0.real, self.p0.imag, self.p2.real, self.p2.imag)
+
+    def __str__(self):
+        return f"LineControl({self.line})"
+
+    def update(self, t: float, state: State): # -> (speed, omega)
+        p = complex(state.x, state.y)
+
+        # cross product: gives distance and which side
+        dp = p - self.p0
+        d = dp.real * self.dp.imag - dp.imag * self.dp.real
+        d /= abs(self.dp)
+
+        # angle wrt line. dtheta is 90 for large d
+        dtheta = (pi/2) * (1 - math.exp(-(d/0.1)**2))
+
+        # limit overshoot - could account for omega too,
+        # find arc to hit line 
+        speed = math.inf
+        if math.sin(dtheta) > 0:
+            speed = abs(d) / math.sin(dtheta) + 0.02
+
+        # print("d", d, "dtheta", dtheta)
+        # which side is it on????
+        if d < 0:
+            dtheta = -dtheta
+        dtheta = norm_angle(self.theta + dtheta - state.theta)
+        print("theta", self.theta, state.theta, dtheta)
+        # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
+        speed = min(speed, self.speed * math.exp(-abs(4*dtheta)**2))
+        
+        # also reduce speed to crossing line
+        d1 = abs(p - self.p1)
+        if abs(d1) < 2 * state.speed:
+            speed = min(abs(d1)/3 + 0.02, speed)
+
+        omega = math.copysign(min(abs(dtheta), self.omega), dtheta)
+        # print(t, d, theta, state.theta, dtheta, speed)
+        return speed, omega
+
+    def end(self, t: float, state: State) -> bool:
+        #return False
+        return self._end(t, state)
+
+
 class PointControl(Control):
 
     def __init__(self, x: float, y: float, speed: float, omega: float, end):
@@ -158,11 +218,11 @@ class PointControl(Control):
         theta = math.atan2(dy, dx)
         dtheta = norm_angle(theta - state.theta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
-        speed = self.speed * math.exp(-abs(5*dtheta)**2)
+        speed = self.speed * math.exp(-abs(dtheta/0.1)**2)
         # reduce speed near point since 1s update rate can overshoot
         d = math.hypot(dx, dy)
         if d < 2 * speed: # two seconds
-            speed = min(speed, d + 0.02)
+            speed = min(speed, d/3 + 0.05)
         # relax towards desired _theta
         omega = math.copysign(min(abs(dtheta), self.omega), dtheta)
         return speed, omega
@@ -349,17 +409,38 @@ def RingControls(coords, speed, omega):
 
 
 def FenceShrink(fence, speed, omega):
+    max_distance = 10
+    shrink = -0.15
     coords = fence.exterior.coords
     lap = 0
     _, state = yield GetStateControl()
     while True:
         log.info("FenceShrink lap %d area %g", lap, fence.area)
+        l = [(math.hypot(state.x - x, state.y - y), i, x, y) for i, (x, y) in enumerate(fence.exterior.coords)]
+        l.sort()
+        # print("NEAREST", state, l[:3])
+        # print("EXTERIOR", list(fence.exterior.coords))
+        assert fence.exterior.coords[0] == fence.exterior.coords[-1]
+        d, i = min((math.hypot(state.x - x, state.y - y), i) for i, (x, y) in enumerate(fence.exterior.coords[:-1]))
+        if d > max_distance:
+            log.error("Distance to nearest point: %g", d)
+            log.info("Points: %r", list(fence.exterior.coords))
+            break
+        assert d <= max_distance
+        coords = fence.exterior.coords[i:-1] + fence.exterior.coords[:i]
+        coords.append(coords[0])
+        assert len(coords) == len(fence.exterior.coords)
+
         for c in RingControls(coords, speed, omega):
             _, state = yield c
-        fence = fence.buffer(-0.15, join_style=2)
+            
+        fence = fence.buffer(shrink, join_style=2)
+        if isinstance(fence, MultiPolygon):
+            log.info("FenceShrink completed: MultiPolygon %d", len(fence.geoms))
+            break
         if fence.area < 0.1:
             # also covers area==0 with no coords
-            log.info("FenceShrink completed")
+            log.info("FenceShrink completed: area %g", fence.area)
             break
         # TODO: sometimes turns into a multipolygon object on buffer... Pick the closest one (if any) and queue the others....
         # Reshuffle exterior points to make sure starting point of new shape is not very different from the current one.
@@ -367,21 +448,15 @@ def FenceShrink(fence, speed, omega):
         # Could also have found nearest point on shape and created addition point.
         # print("AREA", fence.area)
         # print("BUFFER", list(fence.exterior.coords))
-        l = [(math.hypot(state.x - x, state.y - y), i, x, y) for i, (x, y) in enumerate(fence.exterior.coords)]
-        l.sort()
-        # print("NEAREST", state, l[:3])
-        # print("EXTERIOR", list(fence.exterior.coords))
-        assert fence.exterior.coords[0] == fence.exterior.coords[-1]
-        d, i = min((math.hypot(state.x - x, state.y - y), i) for i, (x, y) in enumerate(fence.exterior.coords[:-1]))
-        if d > 1:
-            log.error("Distance to nearest point: %g", d)
-            log.info("Points: %r", list(fence.exterior.coords))
-            break
-        assert d <= 1
-        coords = fence.exterior.coords[i:-1] + fence.exterior.coords[:i]
-        coords.append(coords[0])
-        assert len(coords) == len(fence.exterior.coords)
         lap += 1
+
+
+def LineControlTest():
+    speed = 0.1
+    omega = 0.2
+    yield PointControl(0, 0, speed, omega, distance(0, 0, 0.1))
+    yield LineControl((0,0), (5,0), speed, omega)
+    yield LineControl((5,0), (5,5), speed, omega)
 
 
 # TODO: remove, move to record.py
