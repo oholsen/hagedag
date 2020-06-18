@@ -9,6 +9,7 @@ import RobotState
 import play
 import control
 from state import State
+from shapely.geometry import JOIN_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -296,21 +297,22 @@ def replay(file, plot):
 def mission_control(host, filename):
     from Map import Config
     from Plotting import Plot
-    from control import CompositeControl2, ScanHLine, FenceBumps, RingControls, FenceShrink
+    from control import CompositeControl2, ScanHLine, FenceBumps, RingControls, FenceShrink, PathControls
 
     config = Config("mission.yaml")
     if config.aoi:
-        fence = config.fence.intersection(config.aoi)
+        aoi = config.fence.intersection(config.aoi)
     else:
-        fence = config.fence
+        aoi = config.fence
     speed = config.mission.speed or 0.05
     omega = config.mission.omega or 0.2
     cut = config.mission.cut or 20
+    
 
     # controls = FenceBumps(fence, speed, omega)
     # controls = RingControls(fence.exterior.coords, speed, omega)
-    controls = FenceShrink(fence, speed, omega)
-    # controls = FenceShrink(fence.buffer(-0.5, join_style=2), speed, omega)
+    aoi = aoi.buffer(-0.1, join_style=JOIN_STYLE.mitre)
+    controls = FenceShrink(config.fence, aoi, speed, omega)
     # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten - lang
     # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser
     # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
@@ -320,16 +322,18 @@ def mission_control(host, filename):
     # controls = ScanHLine(-8, -3, 3, -1.2, speed, omega) # midten med mest gras
     # controls = ScanHLine(-11, -6, -5, -0.4, speed, omega) # mot epler
     # controls = ScanHLine(-2, -4, 2, -1, speed, omega) # test
-    #from control import LineControlTest
-    #controls = LineControlTest()
+    # from control import LineControlTest
+    # controls = LineControlTest()
+    # controls = PathControls(aoi.exterior.coords, speed, omega)
 
     control = CompositeControl2(controls)
     logger.info("Starting mission control for %s", controls)
 
-    plot = Plot(frames_per_plot=host is None and 50 or 1)
-    plot.add_shape(config.fence, facecolor="khaki") # Entire grass
-    plot.add_shape(fence, facecolor="darkkhaki") # AOI
+    plot = Plot(frames_per_plot=host is None and 150 or 1)
+    plot.add_shape(config.fence, facecolor="khaki")
+    plot.add_shape(aoi, facecolor="darkkhaki")
     plot.pause()
+    # input("Wait for key press")
 
     if host is None:
         if filename:

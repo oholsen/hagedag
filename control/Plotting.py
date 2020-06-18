@@ -1,9 +1,54 @@
+from math import cos, sin
 import numpy as np
 import matplotlib.pyplot as plt
-from math import cos, sin
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch, Circle
+from matplotlib import patches
+from shapely.geometry import Point, Polygon, box, LineString, MultiLineString, MultiPolygon
+
 from state import State
+
+
+
+def polygon_path(points):
+    #codes = [Path.MOVETO] + [Path.LINETO] * (len(points) - 1) + [Path.CLOSEPOLY]
+    #vertices = points + [(0, 0)]
+    codes = [Path.MOVETO] + [Path.LINETO] * (len(points) - 1)
+    vertices = points
+    vertices = np.array(vertices, float)
+    return Path(vertices, codes, closed=True)
+
+
+def shape_to_patch(shape, **kwargs):
+
+    if isinstance(shape, Polygon):
+        return patches.Polygon(list(shape.exterior.coords)[1:], **kwargs)
+
+    if isinstance(shape, MultiPolygon):
+        paths = [polygon_path(list(o.exterior.coords)[1:]) for o in shape.geoms]
+        for p in paths:
+            print("path", p)
+        path = Path.make_compound_path(*paths)
+        return PathPatch(path, **kwargs)
+
+    if isinstance(shape, LineString):
+        path_data = [(Path.MOVETO, shape.coords[0])]
+        for coord in shape.coords[1:]:
+            path_data.append((Path.LINETO, coord))
+        codes, verts = zip(*path_data)
+        path = Path(verts, codes, closed=False)
+        return PathPatch(path, **kwargs)
+
+
+def lines_to_patch(lines, **kwargs):
+    path_data = []
+    for line in lines:
+        path_data.append((Path.MOVETO, line.coords[0]))
+        path_data.append((Path.LINETO, line.coords[1]))
+    codes, verts = zip(*path_data)
+    path = Path(verts, codes)
+    return PathPatch(path, **kwargs)
+
 
 
 class Plot():
@@ -31,12 +76,8 @@ class Plot():
 
     def add_shape(self, shape, **kwargs):
         """Add shapely Shape outline"""
-        points = list(shape.exterior.coords)[1:]
-        codes = [Path.MOVETO] + [Path.LINETO] * (len(points) - 1) + [Path.CLOSEPOLY]
-        vertices = points + [(0, 0)]
-        vertices = np.array(vertices, float)
-        path = Path(vertices, codes)
-        self.patches.append(PathPatch(path, **kwargs))
+        patch = shape_to_patch(shape, **kwargs)
+        self.patches.append(patch)
 
     def update(self, state: State):
         self.state = state        
@@ -61,7 +102,7 @@ class Plot():
         # ax.set_title('Garden Map')
         # self.ax.autoscale_view()
         if self.state:
-            self.ax.add_patch(Circle((self.state.x, self.state.y), 0.15))
+            self.ax.add_patch(Circle((self.state.x, self.state.y), 0.3, zorder=2, facecolor="lightgrey", edgecolor="black"))
             a = 1  # * speed
             self.ax.arrow(self.state.x, self.state.y, a * cos(self.state.theta), a * sin(self.state.theta), zorder=2) # top
         self.ax.plot(self.x, self.y, ".b", label="trajectory", zorder=1) # bottom

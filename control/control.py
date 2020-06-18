@@ -11,7 +11,7 @@ from state import State
 from PID import PID
 from Plotting import Plot
 from abc import ABC
-from shapely.geometry import Point, Polygon, MultiPolygon, LineString
+from shapely.geometry import Point, Polygon, MultiPolygon, LineString, JOIN_STYLE
 from shapely.ops import nearest_points
 
 
@@ -177,19 +177,18 @@ class LineControl(Control):
         if math.sin(dtheta) > 0:
             speed = abs(d) / math.sin(dtheta) + 0.02
 
-        # print("d", d, "dtheta", dtheta)
         # which side is it on????
         if d < 0:
             dtheta = -dtheta
         dtheta = norm_angle(self.theta + dtheta - state.theta)
-        print("theta", self.theta, state.theta, dtheta)
+        # print("theta", self.theta, state.theta, dtheta)
         # reduce speed if theta is very wrong, 1 at 0, 0.2 at pi/2
         speed = min(speed, self.speed * math.exp(-abs(4*dtheta)**2))
         
-        # also reduce speed to crossing line
+        # also reduce speed to not overshoot crossing line
         d1 = abs(p - self.p1)
-        if abs(d1) < 2 * state.speed:
-            speed = min(abs(d1)/3 + 0.02, speed)
+        if d1 < 2 * state.speed:
+            speed = min(d1/4 + 0.02, speed)
 
         omega = math.copysign(min(abs(dtheta), self.omega), dtheta)
         # print(t, d, theta, state.theta, dtheta, speed)
@@ -389,9 +388,6 @@ def FenceBumps(fence, speed, omega):
 
 
 def RingControls(coords, speed, omega):
-    # Note: short lines in curved corners
-    # TODO: seed with current robot position! yield dummy control to get t, state
-    # Ie make it a proper (composite) control!?
     x0, y0 = coords[0]
     yield PointControl(x0, y0, speed, omega, distance(x0, y0, 0.2))
     # aim a little beyond the desired point to make sure it crosses the line before turning wildly to reach the point        
@@ -408,47 +404,70 @@ def RingControls(coords, speed, omega):
         y0 = y
 
 
-def FenceShrink(fence, speed, omega):
-    max_distance = 10
-    shrink = -0.15
-    coords = fence.exterior.coords
-    lap = 0
-    _, state = yield GetStateControl()
-    while True:
-        log.info("FenceShrink lap %d area %g", lap, fence.area)
-        l = [(math.hypot(state.x - x, state.y - y), i, x, y) for i, (x, y) in enumerate(fence.exterior.coords)]
-        l.sort()
-        # print("NEAREST", state, l[:3])
-        # print("EXTERIOR", list(fence.exterior.coords))
-        assert fence.exterior.coords[0] == fence.exterior.coords[-1]
-        d, i = min((math.hypot(state.x - x, state.y - y), i) for i, (x, y) in enumerate(fence.exterior.coords[:-1]))
-        if d > max_distance:
-            log.error("Distance to nearest point: %g", d)
-            log.info("Points: %r", list(fence.exterior.coords))
-            break
-        assert d <= max_distance
-        coords = fence.exterior.coords[i:-1] + fence.exterior.coords[:i]
-        coords.append(coords[0])
-        assert len(coords) == len(fence.exterior.coords)
+def PathControls(coords, speed, omega):
+    p0 = coords[0]
+    for p in coords[1:]:
+        yield LineControl(p0, p, speed, omega)
+        p0 = p
 
-        for c in RingControls(coords, speed, omega):
-            _, state = yield c
+
+def FenceShrink(limits, aoi, speed, omega):
+    shrink = -0.15
+    _, state = yield GetStateControl()
+
+    area = 0
+    shapes = [aoi]
+    while shapes:
+        # select the closest area:
+        _, shape = min((s.distance(Point(state.x, state.y)), s) for s in shapes)
+        shapes.remove(shape)
+        lap = 1
+        area += 1
+        while True:
+            if isinstance(shape, MultiPolygon):
+                log.info("Fence %d MultiPolygon %d", area, len(shape.geoms))
+                shapes.extend(shape.geoms)
+                break
+
+            log.info("Fence %d lap %d area %g", area, lap, shape.area)
+            l = [(math.hypot(state.x - x, state.y - y), i, x, y) for i, (x, y) in enumerate(shape.exterior.coords)]
+            l.sort()
+            assert shape.exterior.coords[0] == shape.exterior.coords[-1]
+            _, i = min((math.hypot(state.x - x, state.y - y), i) for i, (x, y) in enumerate(shape.exterior.coords[:-1]))
+
+            # shuffle coordinates (rotate) to start with the nearest point
+            coords = shape.exterior.coords[i:-1] + shape.exterior.coords[:i]
+            coords.append(coords[0])
+            assert len(coords) == len(shape.exterior.coords)
+
+            import geometry
+            path = geometry.path((state.x, state.y), coords[0], limits)
+            if path is None:
+                log.warning("Fence %d: no path to first point %s", area, coords[0])
+                break
+
+            # move to first point in ring
+            for c in PathControls(path.coords, speed, omega):
+                _, state = yield c
             
-        fence = fence.buffer(shrink, join_style=2)
-        if isinstance(fence, MultiPolygon):
-            log.info("FenceShrink completed: MultiPolygon %d", len(fence.geoms))
-            break
-        if fence.area < 0.1:
-            # also covers area==0 with no coords
-            log.info("FenceShrink completed: area %g", fence.area)
-            break
-        # TODO: sometimes turns into a multipolygon object on buffer... Pick the closest one (if any) and queue the others....
-        # Reshuffle exterior points to make sure starting point of new shape is not very different from the current one.
-        # Find nearest point and start there.
-        # Could also have found nearest point on shape and created addition point.
-        # print("AREA", fence.area)
-        # print("BUFFER", list(fence.exterior.coords))
-        lap += 1
+            # move around ring
+            for c in PathControls(coords, speed, omega):
+                _, state = yield c
+            
+            # make a smaller ring
+            shape2 = shape.buffer(shrink, join_style=JOIN_STYLE.mitre)
+            if shape2.area < 0.001:
+                log.info("Fence %d almost completed: area %g", area, shape2.area)
+                shape2 = shape.buffer(shrink/2, join_style=JOIN_STYLE.mitre)
+                log.info("Fence %d completion: area %g", area, shape2.area)
+
+            if shape2.area < 0.001:
+                # also covers area==0 with no coords
+                log.info("Fence %d completed: area %g", area, shape2.area)
+                break
+            shape = shape2
+            lap += 1
+
 
 
 def LineControlTest():
