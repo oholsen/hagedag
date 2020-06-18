@@ -1,4 +1,35 @@
-aoi1: # dokkestove
+aoi-midten: # midten...
+  - x: 2.2
+    y: -6
+  - x: -20
+    y: -20
+
+
+aoi-plomme: # plomme
+  - x: -20
+    y: -20
+  - x: -5
+    y: -7.8
+
+aoi-HR: # HR
+  - x: 2.4
+    y: -20
+  - x: -20
+    y: 0 # ikkje heilt opp mot druene
+
+aoi-HL: # HL sandkasse mot bakken
+  - x: 2.2 # 4.1
+    y: -20
+  - x: 20
+    y: 20
+
+aoi-C: # Midten
+  - x: 2.2 # 4.1
+    y: -20
+  - x: -4
+    y: 20
+
+aoi-dokkestove: # dokkestove
   - x: 4
     y: -20
   - x: 12
@@ -10,9 +41,15 @@ aoi-garasje: # garasje
   - x: 20
     y: 20
 
-aoi-busker:
+aoi-busker-rose: # busker-rose
   - x: -20
-    y: -2
+    y: -7
+  - x: -9
+    y: 10
+
+aoi: # busker
+  - x: -20
+    y: -0.5 # -0.35
   - x: -9
     y: 10
 
@@ -23,6 +60,7 @@ aoi-dukkestue:
     y: -20
 
 battery_cutoff: 10
-speed: 0.2
-omega: 0.12
+speed: 0.15
+omega: 0.25
 garden: garden.yaml
+cut: 20
