@@ -70,7 +70,7 @@ class RobotStateFeed(object):
         self.speed_time: datetime = None
         self.speeds: RobotState.Speed = None        
 
-        self.battery_ok = True # TODO: None but a delay for starting up
+        self.battery_ok = True
         self.battery: RobotState.Battery = None
 
     # TODO: also report error state - or be able to return status from here...
@@ -177,7 +177,8 @@ class RobotStateFeed(object):
             logger.debug("BATTERY %s", o)
             self.battery = o
             # TODO: configurable threshold - eg global config "dep injection"
-            self.battery_ok = self.battery.voltage > 10
+            if self.battery.voltage < 10.5:
+                self.battery_ok = False
             return
 
 
