@@ -1,0 +1,172 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <style>
+      body {
+        margin: 0px;
+        padding: 0px;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div><span id="posx">x</span>&nbsp;<span id="posy">y</span></div>
+    <div id="map" style="position:relative; width:1500px; height:750px">
+      <canvas id="layer1" style="z-index: 1; position:absolute; left:0px; top:0px;" width="1500px" height="750px">
+        This text is displayed if your browser does not support HTML5 Canvas.
+      </canvas>
+      <canvas id="layer2" style="z-index: 2; position:absolute; left:0px; top:0px;" width="1500px" height="750px"
+        onmousemove="onMouseMove(event)"
+      >
+        This text is displayed if your browser does not support HTML5 Canvas.
+      </canvas>
+    </div>
+    <div>
+      <p>Robot Status</p>
+      <p>Out of fence, stuck, battery low, idle, mission completed, ...</p>
+      <p>Battery</p>
+      <p>Currents</p>
+      <p>Connections ok</p>
+      <p>Mission time: elapsed, percent</p>
+      <p>Pause, Stop, Resume</p>
+      <p>Mission selector</p>
+    </div>
+    <script>
+      const bounds = document.getElementById('map').getBoundingClientRect();
+      const width = bounds.width;
+      const height = bounds.height;
+      const layer1 = document.getElementById('layer1').getContext('2d');
+      const layer2 = document.getElementById('layer2').getContext('2d');
+      const centerX = 0; // width / 2;
+      const centerY = -2; // height / 2;
+      const R = 2;
+
+      const scale = width / 32;
+      const tx = 12.5; // -12 max left
+      const ty = -5.1; // -10 max down
+      // flip y-axis to point up
+      layer1.scale(scale, -scale);
+      layer2.scale(scale, -scale);
+      layer1.translate(tx, ty);
+      layer2.translate(tx, ty);
+
+      // const matrix = layer1.currentTransform.invertSelf(); // invert
+
+      // garden bounds
+      // layer1.fillStyle='lightblue';
+      // layer1.fillRect(-12, -10, 32, 12);
+
+      function toMap(p) {
+        return {x: p.x, y: p.y}
+      }
+
+      function getMousePos(evt) {
+        return {
+          x: evt.clientX - bounds.left,
+          y: evt.clientY - bounds.top
+        };
+      }
+
+      function onMouseMove(event) {
+        pos = getMousePos(event);
+        let x = pos.x / scale - tx;
+        let y = -pos.y / scale - ty;
+        // console.log("mouse", x, y);
+        document.getElementById('posx').innerText = x.toFixed(2);
+        document.getElementById('posy').innerText = y.toFixed(2);
+
+      }
+
+      function drawGarden(garden) {
+        let ctx = layer1;
+        let limit = garden.limit;
+        let p0 = limit.shift();
+        ctx.moveTo(p0.x, p0.y);
+        limit.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fillStyle = 'khaki';
+        ctx.fill();
+        ctx.lineWidth = 0.04;
+        ctx.strokeStyle = '#003300';
+        ctx.stroke();
+      }
+
+      function trail(x, y) {
+        let ctx = layer1;
+        // console.log("trail", x, y);
+        ctx.beginPath();
+        ctx.arc(x, y, 0.2, 0, 2 * Math.PI, false);
+        ctx.fillStyle = 'blue';
+        ctx.fill();
+      }
+
+      function robot(x, y, heading) {
+        let ctx = layer2;
+
+        // position
+        ctx.beginPath();
+        ctx.arc(x, y, 0.2, 0, 2 * Math.PI, false);
+        ctx.fillStyle = 'grey';
+        ctx.fill();
+
+        // heading indicator, y is down
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        let V = 0.3;
+        ctx.lineTo(x + V * Math.cos(heading), y + V * Math.sin(heading));
+        ctx.lineWidth = 0.1;
+        ctx.strokeStyle = 'black';
+        ctx.stroke();
+      }
+
+
+      function drawGrid(ctx, delta, width) {
+        ctx.lineWidth = width;
+        for (i = 0; i <= 40; i += delta) {
+          ctx.beginPath();
+          ctx.moveTo(i, -40);
+          ctx.lineTo(i, +40);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(-i, -40);
+          ctx.lineTo(-i, +40);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(-40, i);
+          ctx.lineTo(+40, i);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(-40, -i);
+          ctx.lineTo(+40, -i);
+          ctx.stroke();
+        }
+      }
+
+      var angle = 0;
+
+      function move() {
+          angle += 0.1;
+
+          let x = centerX + R * Math.cos(angle);
+          let y = centerY + R * Math.sin(angle);
+          trail(x, y);
+
+          layer2.save();
+          layer2.resetTransform();
+          layer2.clearRect(0, 0, width, height);
+          layer2.restore();
+          robot(x, y, angle + Math.PI / 2);
+      }
+      fetch('fence.json')
+        .then(response => response.json())
+        .then(data => {
+          // console.log(data); 
+          drawGarden(data);
+          drawGrid(layer1, 2, 0.01);
+          drawGrid(layer1, 10, 0.03);
+          setInterval(move, 200);
+        });
+
+    </script>
+  </body>
+</html>      
