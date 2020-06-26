@@ -37,24 +37,16 @@
       const height = bounds.height;
       const layer1 = document.getElementById('layer1').getContext('2d');
       const layer2 = document.getElementById('layer2').getContext('2d');
-      const centerX = 0; // width / 2;
-      const centerY = -2; // height / 2;
-      const R = 2;
 
+      // transform to use garden coordinates
+      // flip y-axis to point up
       const scale = width / 32;
       const tx = 12.5; // -12 max left
       const ty = -5.1; // -10 max down
-      // flip y-axis to point up
       layer1.scale(scale, -scale);
       layer2.scale(scale, -scale);
       layer1.translate(tx, ty);
       layer2.translate(tx, ty);
-
-      // const matrix = layer1.currentTransform.invertSelf(); // invert
-
-      // garden bounds
-      // layer1.fillStyle='lightblue';
-      // layer1.fillRect(-12, -10, 32, 12);
 
       function toMap(p) {
         return {x: p.x, y: p.y}
@@ -86,14 +78,13 @@
         ctx.closePath();
         ctx.fillStyle = 'khaki';
         ctx.fill();
-        ctx.lineWidth = 0.04;
-        ctx.strokeStyle = '#003300';
+        ctx.lineWidth = 0.05;
+        ctx.strokeStyle = 'red';
         ctx.stroke();
       }
 
       function trail(x, y) {
         let ctx = layer1;
-        // console.log("trail", x, y);
         ctx.beginPath();
         ctx.arc(x, y, 0.2, 0, 2 * Math.PI, false);
         ctx.fillStyle = 'blue';
@@ -109,7 +100,7 @@
         ctx.fillStyle = 'grey';
         ctx.fill();
 
-        // heading indicator, y is down
+        // heading indicator
         ctx.beginPath();
         ctx.moveTo(x, y);
         let V = 0.3;
@@ -119,44 +110,67 @@
         ctx.stroke();
       }
 
+      function drawOrigin(ctx) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.3, 0, 2 * Math.PI, false);
+        ctx.arc(0, 0, 0.5, 0, 2 * Math.PI, false);
+        ctx.fillStyle = 'grey';
+        ctx.lineWidth = 0.01;
+        ctx.strokeStyle = 'black';
+        ctx.stroke();
+        ctx.lineWidth = 0.2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.4, 0.5 * Math.PI, 1 * Math.PI, false);
+        ctx.stroke()
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.4, 1.5 * Math.PI, 2 * Math.PI, false);
+        ctx.stroke()
+      }
 
       function drawGrid(ctx, delta, width) {
         ctx.lineWidth = width;
-        for (i = 0; i <= 40; i += delta) {
+        
+        function vline(i) {
           ctx.beginPath();
           ctx.moveTo(i, -40);
           ctx.lineTo(i, +40);
           ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(-i, -40);
-          ctx.lineTo(-i, +40);
-          ctx.stroke();
+        }
+
+        function hline(i) {
           ctx.beginPath();
           ctx.moveTo(-40, i);
           ctx.lineTo(+40, i);
           ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(-40, -i);
-          ctx.lineTo(+40, -i);
-          ctx.stroke();
+        }
+
+        for (i = -40; i <= 40; i += delta) {
+          vline(i);
+          hline(i);
         }
       }
 
       var angle = 0;
 
       function move() {
-          angle += 0.1;
+          const centerX = 0;
+          const centerY = -3;
+          const R = 2;
 
+          angle += 0.1;
           let x = centerX + R * Math.cos(angle);
           let y = centerY + R * Math.sin(angle);
+
           trail(x, y);
 
           layer2.save();
           layer2.resetTransform();
           layer2.clearRect(0, 0, width, height);
           layer2.restore();
+          
           robot(x, y, angle + Math.PI / 2);
       }
+
       fetch('fence.json')
         .then(response => response.json())
         .then(data => {
@@ -164,6 +178,7 @@
           drawGarden(data);
           drawGrid(layer1, 2, 0.01);
           drawGrid(layer1, 10, 0.03);
+          drawOrigin(layer1);
           setInterval(move, 200);
         });
 
