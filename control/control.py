@@ -169,7 +169,7 @@ class LineControl(Control):
         d /= abs(self.dp)
 
         # angle wrt line. dtheta is 90 for large d
-        dtheta = (pi/2) * (1 - math.exp(-(d/0.1)**2))
+        dtheta = (pi/2) * (1 - math.exp(-(d/0.2)**2))
 
         # limit overshoot - could account for omega too,
         # find arc to hit line 
