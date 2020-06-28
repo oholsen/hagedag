@@ -3,11 +3,12 @@ from functools import reduce
 import json
 import utm
 
+# All NMEA sentences described here:
+# https://gpsd.gitlab.io/gpsd/NMEA.html
+# http://www.nvs-gnss.com/support/documentation/item/download/96.html
 
 # http://navspark.mybigcommerce.com/content/NMEA_Format_v0.1.pdf
 # online decode with map: https://rl.se/gprmc
-
-# http://www.nvs-gnss.com/support/documentation/item/download/96.html
 
 
 def to_float(s: str) -> Optional[float]:
@@ -89,8 +90,8 @@ class RMC(GPS):
         self.lat = parse_lat(segments[3], segments[4])
         self.lon = parse_lon(segments[5], segments[6])
         self.hdop = float(segments[7])
-        self.speed_knots = to_float(segments[8])
-        self.course_over_ground = to_float(segments[9])
+        self.speed_knots = to_float(segments[7])
+        self.course_over_ground = to_float(segments[8])
         self.date = segments[9] # "ddmmyy"
         self.mode = segments[12] # "R" for RTK fix, "F" for floating RTK
 
@@ -143,7 +144,6 @@ u0 = UTM(p0.lat, p0.lon)
 
 
 def main():
-    
     import time
     from simulation.Plotting import Plot
     plot = Plot()

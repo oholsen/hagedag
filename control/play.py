@@ -61,8 +61,7 @@ class RobotStateFeed(object):
         self.speed3 = speed
         self.omega3 = omega
 
-        self.rmc_time: datetime  = None
-        self.rmc: GPS.RMC = None
+        self.pos_time: datetime  = None
         
         self.revs_time: datetime = None
         self.revs: RobotState.Revs = None
@@ -86,12 +85,12 @@ class RobotStateFeed(object):
             return
 
         if isinstance(o, GPS.RMC):
-
             # logger.debug("RMC %s %s %g", o.mode, o.has_rtk(), o.hdop)
-            # TODO: figure out what to do here!
-            #if not o.has_rtk(): return
-            # FIXME: configurable for AIO and distance to fence!!!
-            if o.hdop > 0.20 and not o.has_rtk(): return
+            return
+
+        if isinstance(o, GPS.GGA):
+            # FIXME: use error in estimated position in tracking!!!
+            # if o.hdop > 0.20 and not o.has_rtk(): return
 
             u = GPS.UTM(o.lat, o.lon)
             # print(o.time, o.lat, o.lon, o.alt)
@@ -109,33 +108,22 @@ class RobotStateFeed(object):
             z = np.array([[x], [y]])
 
             speed, omega = self.speed1, self.omega1
-            #speed, omega = self.speed2, self.omega2
-            #speed, omega = self.speed3, self.omega3
             
-            if self.rmc_time is None:
+            # TODO: use tt or GPS time? Can track dt outside.
+            if self.pos_time is None:
                 dt = None
             else:
-                dt = (tt - self.rmc_time).total_seconds()
+                dt = (tt - self.pos_time).total_seconds()
                 #dx, dy = u.diff(GPS.UTM(self.rmc.lat, self.rmc.lon))
                 #speed_gps = math.hypot(dx, dy) / dt
                 #print("SPEEDGPS", dl/dt)
 
             ud = np.array([[speed], [omega]])
-            # TODO: track time!?
-            # print("SPEEDOMEGA", speed, omega)
-            self.rmc_time = tt
-            self.rmc = o
+            self.pos_time = tt
             return tt, dt, z, ud, o.hdop
 
-        if isinstance(o, GPS.GGA):
-            # Can be different without RTK fix, get GGA updates without updating self.rmc
-            # if self.rmc:
-            #    assert o.lat == self.rmc.lat
-            #    assert o.lon == self.rmc.lon
-            return
-
         if isinstance(o, RobotState.Revs):
-            #print("REVS", o)
+            # print("REVS", o)
             # Will be lagging somewhat, up to a second - could extrapolate from speeds when yielding at RMC!?
             if self.revs_time is not None:
                 dt = (tt - self.revs_time).total_seconds()
@@ -177,7 +165,7 @@ class RobotStateFeed(object):
             logger.debug("BATTERY %s", o)
             self.battery = o
             # TODO: configurable threshold - eg global config "dep injection"
-            if self.battery.voltage < 10.5:
+            if self.battery.voltage < 10:
                 self.battery_ok = False
             return
 
