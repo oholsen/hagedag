@@ -8,6 +8,7 @@ import numpy as np
 import tracking
 import math, cmath
 import aiofiles
+import re
 import state
 
 logger = logging.getLogger(__name__)
@@ -16,19 +17,19 @@ logger = logging.getLogger(__name__)
 def process(line: str) -> Optional[object]:
     try:
         line = line.strip()
-        cols = line.split()
+        cols = re.split(r' +', line)
         if len(cols) < 4:
             return
 
         t = line[:23].replace(",", ".")
         tt = datetime.fromisoformat(t)
 
-        if len(cols) == 5 and cols[3] == "GPS":
-            msg = cols[4]
+        if len(cols) == 6 and cols[4] == "GPS":
+            msg = cols[5]
             return tt, GPS.process(msg)
 
-        if len(cols) > 5 and cols[3] == "ROBOT":
-            msg = " ".join(cols[4:])
+        if len(cols) > 5 and cols[4] == "ROBOT":
+            msg = " ".join(cols[5:])
             return tt, RobotState.process(msg)
 
         return tt, None
@@ -171,8 +172,11 @@ class RobotStateFeed(object):
 
 
 async def track_input(stream):
+    # TODO: drops time
     p = RobotStateFeed()
-    async for t, o in stream:
+    async for s in stream:
+        if s is None: continue
+        t, o = s
         # logger.debug("track input {%s} {%s}", t, o)
         if t is None or o is None:
             continue
@@ -195,15 +199,3 @@ async def track(stream, yaw=0, speed=0):
         s = state.from_array(s)
         logger.debug("STATE %g %g %g %g", s.x, s.y, s.theta, s.speed)
         yield s
-
-
-if __name__ == "__main__":
-    import asyncio
-    logging.basicConfig(
-        level=logging.INFO,
-        filename="play.log",
-        format='%(asctime)s %(levelname)s %(message)s',
-    )
-    filename = sys.argv[1]
-    stream = parse(filename)
-    asyncio.run(track(stream, yaw=-0.80*math.pi - math.radians(20)))
