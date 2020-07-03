@@ -7,6 +7,10 @@ def test_gga():
     assert gga.lon == 10.361301833333334
     assert gga.fix == 4
     assert gga.alt == 192.9
+    from datetime import time
+    t = time(14, 4, 16)
+    # print(t, gga.time)
+    assert t == gga.time
 
 
 def test_rmc():
