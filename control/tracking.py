@@ -22,26 +22,14 @@ Q = np.diag([
     0.1  # variance of velocity
 ]) ** 2  # predict state covariance
 
-# Observation x,y position covariance
+# Observation x,y position covariance, now dynamic from receiver (input stream)
 # R = np.diag([0.02, 0.02]) ** 2  
-
-
-if 0:    
-    # Covariance for EKF simulation
-    Q = np.diag([
-        0.1,  # variance of location on x-axis
-        0.1,  # variance of location on y-axis
-        np.deg2rad(1.0),  # variance of yaw angle
-        1.0  # variance of velocity
-    ]) ** 2  # predict state covariance
-    R = np.diag([1.0, 1.0]) ** 2  # Observation x,y position covariance
 
 
 def calc_input():
     v = 1.0  # [m/s]
     yawrate = 0.1  # [rad/s]
-    u = np.array([[v], [yawrate]])
-    return u
+    return np.array([[v], [yawrate]])
 
 
 def simulate(xTrue, u, dt: float):
@@ -56,25 +44,19 @@ def simulate(xTrue, u, dt: float):
     return xTrue, z, ud
 
 
-def dead_reckon(xd, ud, dt: float):
-    x = motion_model(xd, ud, dt)
-    # print("DR", xd, ud, dt, x)
-    return x
-
-
-def observation(xTrue, xd, u, dt: float):
+def observation(x_true, xd, u, dt: float):
     # simulation
-    xTrue = motion_model(xTrue, u, dt)
+    x_true = motion_model(x_true, u, dt)
 
     # add noise to gps x-y
-    z = observation_model(xTrue) + GPS_NOISE @ np.random.randn(2, 1)
+    z = observation_model(x_true) + GPS_NOISE @ np.random.randn(2, 1)
 
     # add noise to input
     ud = u + INPUT_NOISE @ np.random.randn(2, 1)
 
     xd = motion_model(xd, ud, dt)
 
-    return xTrue, z, xd, ud
+    return x_true, z, xd, ud
 
 
 def motion_model(x, u, dt: float):
@@ -138,21 +120,21 @@ def jacob_h():
     return jH
 
 
-def ekf_estimation(xEst, PEst, z, u, R, dt: float):
+def ekf_estimation(x_est, P_est, z, u, R, dt: float):
     #  Predict
-    xPred = motion_model(xEst, u, dt)
-    jF = jacob_f(xEst, u, dt)
-    PPred = jF @ PEst @ jF.T + Q
+    x_pred = motion_model(x_est, u, dt)
+    jF = jacob_f(x_est, u, dt)
+    P_pred = jF @ P_est @ jF.T + Q
 
     #  Update
     jH = jacob_h()
-    zPred = observation_model(xPred)
-    y = z - zPred
-    S = jH @ PPred @ jH.T + R
-    K = PPred @ jH.T @ np.linalg.inv(S)
-    xEst = xPred + K @ y
-    PEst = (np.eye(len(xEst)) - K @ jH) @ PPred
-    return xEst, PEst
+    z_pred = observation_model(x_pred)
+    y = z - z_pred
+    S = jH @ P_pred @ jH.T + R
+    K = P_pred @ jH.T @ np.linalg.inv(S)
+    x_est = x_pred + K @ y
+    P_est = (np.eye(len(x_est)) - K @ jH) @ P_pred
+    return x_est, P_est
 
 
 def plot_covariance_ellipse(xEst, PEst):  # pragma: no cover
@@ -184,18 +166,18 @@ async def read_simulation():
     dt = 0.1  # time tick [s]
     SIM_TIME = 50.0  # simulation time [s]
     time = 0.0
-
+    hdop = 0.1
     np.random.seed(23)
     # State Vector [x y yaw v]'
-    xTrue = np.zeros((4, 1))
+    x_true = np.zeros((4, 1))
     z = np.zeros((2, 1))
     yield 0, None, z, None, None
 
-    while SIM_TIME >= time:
+    while time <= SIM_TIME:
         u = calc_input()
-        xTrue, z, ud = simulate(xTrue, u, dt)
+        x_true, z, ud = simulate(x_true, u, dt)
         time += dt
-        yield time, dt, z, ud, 0.1
+        yield time, dt, z, ud, hdop
 
 
 class History:
@@ -213,7 +195,7 @@ class History:
 
     def plot_flatten(self, fmt):
         plt.plot(self.history[0, :].flatten(),
-                self.history[1, :].flatten(), fmt)
+                 self.history[1, :].flatten(), fmt)
 
 
 class DeadReckonTracker:
@@ -229,7 +211,7 @@ class DeadReckonTracker:
 
     def update(self, z, u, dt: float):
         # u: input, z: observation (not used here)
-        self.state = dead_reckon(self.state, u, dt)
+        self.state = motion_model(self.state, u, dt)
         return self.state
 
 
@@ -267,8 +249,8 @@ async def track(stream, yaw=0, speed=0):
         # plt.gca().invert_yaxis()
         plt.axis("equal")
         plt.grid(True)
-        hz.plot(".-g")
-        # hdr.plot_flatten("-k")            
+        hz.plot(".g")
+        # hdr.plot_flatten("-k")
         hekf.plot_flatten("-r")
         ekf.plot_covariance()
 
