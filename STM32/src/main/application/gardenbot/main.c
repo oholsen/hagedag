@@ -212,7 +212,7 @@ void _set_motor_speeds(void) {
 bool _check_command_timeout()
 {
     if (cmd_timeout != 0.0f && time >= cmd_timeout) {
-        snprintf(buf, sizeof(buf), "Command timeout %.2f %.2f %.3f\n", cmd_speed, cmd_rotation, time - cmd_timeout);
+        snprintf(buf, sizeof(buf), "Timeout %.3f m %.2f %.2f %.3f\n", time, cmd_speed, cmd_rotation, cmd_timeout);
         usart_tx_string(USART1, buf);
         _stop();
         cmd_timeout = 0.0f;
@@ -228,7 +228,11 @@ void _set_motion(float speed, float rotation, float timeout)
     cmd_rotation = rotation * (ROTATION_DIST / 360.0); // deg/s -> cm/s
     cmd_timeout = timeout;
     if (_check_command_timeout())
+    {
         _set_motor_speeds();
+        snprintf(buf, sizeof(buf), "Ack %.3f m %.2f %.2f %.3f\n", time, cmd_speed, cmd_rotation, cmd_timeout);
+        usart_tx_string(USART1, buf);
+    }
 }
 
 

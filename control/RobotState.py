@@ -1,5 +1,4 @@
 from typing import Optional
-import json
 import math
 from abc import ABC
 
@@ -23,14 +22,25 @@ def to_float(s: str) -> Optional[float]:
     except ValueError:
         return None
 
+
 def to_int(s: str) -> Optional[int]:
     try:
         return int(s)
     except ValueError:
         return None
 
+
 class FromRobot(ABC):
     pass
+
+
+class Time(FromRobot):
+    def __init__(self, segments):
+        self.time = to_float(segments[1])
+
+    def __str__(self):
+        return f"Time({self.time})"
+
 
 class Revs(FromRobot):
     def __init__(self, segments):
@@ -39,6 +49,7 @@ class Revs(FromRobot):
 
     def __str__(self):
         return f"Revs({self.left}, {self.right})"
+
 
 class Speed(FromRobot):
     def __init__(self, segments):
@@ -99,68 +110,135 @@ omega = -rotation # deg/s
 """
 
 
-class Translate(FromRobot):
-    def __init__(self, speed: float):
+class ControlAck(FromRobot):
+    """Ack as response from starting processing of control line"""
+    pass
+
+
+class TranslateAck(ControlAck):
+    def __init__(self, segments):
         # argument is [-20..20]
-        self.arg = speed
-        self.speed = 1 * int(speed) * 0.01 # m/s
+        self.speed = to_float(segments[1]) * 0.01  # m/s
 
     def __str__(self):
         return f"Translate({self.speed})"
 
-class Rotate(FromRobot):
-    def __init__(self, omega: float):
-        # argument is [-20..20]
 
-        self.arg = omega
-        self.omega = -1 * math.radians(omega)
+class RotateAck(ControlAck):
+    def __init__(self, segments):
+        # argument is [-20..20]
+        self.omega = -1 * math.radians(to_float(segments[1]))
 
     def __str__(self):
         return f"Rotate({self.omega})"
 
-class Stop(FromRobot):
-    def __init__(self):
-        pass
-    def __str__(self):
-        return "Stop()"
 
-class Reset(Stop):
-    def __init__(self):
+class HeartbeatAck(ControlAck):
+    def __init__(self, segments):
         pass
-    def __str__(self):
-        return "Reset()"
 
-class Heartbeat(FromRobot):
     def __str__(self):
         return "Heartbeat()"
 
-def Control(segments):
-    # print("Control", segments)
-    cmd = segments[1]
-    if cmd == '.':
-        return Stop()
-    if cmd == '!':
-        return Reset()
-    if cmd == 'r':
-        return Rotate(float(segments[2]))
-    if cmd == 't':
-        return Translate(float(segments[2]))
+
+class StopAck(ControlAck):
+    def __init__(self, segments):
+        pass
+
+    def __str__(self):
+        return "Stop()"
+
+
+class ResetAck(ControlAck):
+    def __init__(self, segments):
+        pass
+
+    def __str__(self):
+        return "Reset()"
+
+
+_control_acks = {
+    "t": TranslateAck,
+    "r": RotateAck,
+    ".": StopAck,
+    "!": ResetAck,
+    "heartbeat": HeartbeatAck,
+}
+
+
+def control_ack(segments) -> Optional[ControlAck]:
+    assert segments[0] == "Control"
+    segments = segments[1:]
+    ack = _control_acks.get(segments[0])
+    if ack is not None:
+        return ack(segments)
+    return None
+
+
+class Ack(FromRobot):
+    # Ack <time> <command as interpreted by robot>
+    def __init__(self, time: float, command: FromRobot):
+        self.time = time
+        self.command = command
+
+    def __str__(self):
+        return f"Ack({self.time},{self.command})"
+
+
+class Move(FromRobot):
+    def __init__(self, segments):
+        # speed is [-20..20] # cm/s
+        # omega is [-20..20] # degrees/s
+        self.speed = 1 * int(to_float(segments[1])) * 0.01 # m/s
+        self.omega = -1 * math.radians(to_float(segments[2]))
+        self.timeout = to_float(segments[3])
+
+    def __str__(self):
+        return f"Move({self.speed},{self.omega},{self.timeout})"
+
+
+class Timeout(FromRobot):
+    # Timeout <time> <command as interpreted by robot>
+    def __init__(self, time: float, command: FromRobot):
+        self.time = time
+        self.command = command
+
+    def __str__(self):
+        return f"Timeout({self.time},{self.command})"
+
+
+_commands = {
+    "m": Move,
+}
+
+
+def command(clz, segments) -> FromRobot:
+    time = float(segments[1])
+    segments = segments[2:]
+    cmd = _commands.get(segments[0])
+    if cmd is not None:
+        cmd = cmd(segments)
+        return clz(time, cmd)
+    return None
 
 
 class Ignore(FromRobot):
     def __init__(self, segments):
         self.segments = segments
+
     def __str__(self):
         return f"Ignore({self.segments})"
 
 
 _sentences = {
+    "Time": Time,
     "Revs": Revs,
     "Speed": Speed,
     "Power": Power,
-    "Control": Control,
     "Battery": Battery,
-    # "heartbeat": Heartbeat,
+    "Control": control_ack,
+    "Ack": lambda segments: command(Ack, segments),
+    "Timeout": lambda segments: command(Timeout, segments),
 }
 
 
@@ -188,34 +266,32 @@ def revs_delta(dl: float, dr: float, dt: float):
 class RobotCommand(ABC):
     pass
 
-class SpeedCommand(RobotCommand):
-    def __init__(self, speed: float):
+
+class MoveCommand(RobotCommand):
+    def __init__(self, speed: float, omega: float, timeout: float):
         self.speed = speed  # m/s
+        self.omega = omega  # rad/s
+        self.timeout = timeout
+
     def __str__(self):
         t = 100 * self.speed  # cm/s
-        return f"t {t:.2f}"
-
-class OmegaCommand(RobotCommand):
-    def __init__(self, omega: float):
-        self.omega = omega  # omega is rad/s in opposite direction to 
-    def __str__(self):
         r = - math.degrees(self.omega)  # degrees/s
-        return f"r {r:.2f}"
+        return f"m {t:.2f} {r:.2f} {self.timeout:.3f}"
+
 
 class StopCommand(RobotCommand):
     def __str__(self):
         return "."
 
+
 class ResetCommand(StopCommand):
     def __str__(self):
         return "!"
 
-class HeartbeatCommand(RobotCommand):
-    def __str__(self):
-        return "heartbeat"
 
 class CutCommand(RobotCommand):
     def __init__(self, speed: float):
-        self.speed = speed  # just < 0, 0, > 0 for now
+        self.speed = speed
+
     def __str__(self):
         return f"CUT {self.speed:.2f}"
