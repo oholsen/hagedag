@@ -28,7 +28,6 @@
         var value = $(this).slider("value");
         $("#speedText").val(value); 
         //console.log("speed change", value);
-        post("t " + value);
       }
     });
     $("#speedText").val($("#speedSlider").slider("value"));
@@ -45,19 +44,6 @@
         var value = $(this).slider("value");
         $("#turnText").val(value);         
         // console.log("turn change", value);
-
-        // When reversing, rotation direction, as seen from above, is opposite to 
-        // natural driving intuition: rotating positive (clockwise, "right") is
-        // steering left.
-        // TODO: Must trigger same change in r when changing speed
-        /*
-        var speed = $("#speedSlider").slider("value");
-        console.log("speed", speed);
-        if (speed < 0)
-          value = -value;
-        console.log("turn change", value);
-        */
-        post("r " + value);
       }      
     });
 
@@ -114,6 +100,13 @@
 
     function cut(value) {
       post("CUT " + value);
+    }
+
+    function move(time) {
+        var s = $("#speedSlider").slider("value");
+        var r = $("#turnSlider").slider("value");
+        var timeout = time + 2.5;
+        post(`m {s} {r} {timeout}`);
     }
 
     function stop() {
@@ -198,15 +191,24 @@
           const message = e.data;
           console.log("Websocket message:", message);
           debug(message);
-          
-          if (message.startsWith("Battery ")) {
-            let vbat = message.split(" ")[1];
+
+          let cols = message.split(" ");
+          if (cols.length == 0)
+            return;
+          let cmd = cols[0];
+          if (cmd == "Time") {
+            let t = parseFloat(cols[1]);
             $('#battery').text(vbat);
             return;
           }
 
-          if (message.startsWith("IV ")) {
-            let cols = message.split(" ");
+          if (cmd == "Battery") {
+            let vbat = cols[1];
+            $('#battery').text(vbat);
+            return;
+          }
+
+          if (cmd == "IV") {
             $('#i_cutter').text(cols[1]);
             $('#i_wheels').text(cols[2]);
             $('#i_5V').text(cols[3]);

@@ -32,9 +32,7 @@
 #endif
 
 
-#define HEARTBEAT_TIMEOUT               10
-#define HEARTBEATE_REPORT_INTERVAL       5 
-#define BATTERY_INTERVAL                20
+#define BATTERY_INTERVAL                20 // seconds
 
 
 /*
@@ -97,7 +95,7 @@ MotorControl_t motor_B = {
 Updater_t updater;
 float cmd_speed = 0.0f;    // forward revs / sec
 float cmd_rotation = 0.0f; // right from above
-uint32_t heartbeat_time = 0;
+float cmd_timeout = 0.0f;  // time when command times out, 0 is timeout state
 
 
 Pin_t vbat_ain_pin = {GPIOA, 5};
@@ -185,6 +183,7 @@ void _reset(void)
     motor_control_init(&motor_B, 0.0);
 }
 
+
 void _stop(void) 
 {
     cmd_speed = cmd_rotation = 0;
@@ -192,7 +191,8 @@ void _stop(void)
     motor_control_set_speed(&motor_R, 0, 1);  
 }
 
-// command speeds are in cm/s
+
+// command speeds are in cm/s, rotation is to the right from above
 void _set_motor_speeds(void) {
     float speed_L = (cmd_speed + cmd_rotation) * TICKS_PER_CM;
     float speed_R = (cmd_speed - cmd_rotation) * TICKS_PER_CM;
@@ -208,25 +208,27 @@ void _set_motor_speeds(void) {
     motor_control_set_speed(&motor_R, speed_R, set_speed_alpha);
 } 
 
-// speed is translation speed forwards in cm/s
-void _set_speed(float speed)
+
+bool _check_command_timeout()
 {
-    cmd_speed = speed;
-    _set_motor_speeds();
+    if (cmd_timeout != 0.0f && time >= cmd_timeout) {
+        snprintf(buf, sizeof(buf), "Command timeout %.2f %.2f %.3f\n", cmd_speed, cmd_rotation, time - cmd_timeout);
+        usart_tx_string(USART1, buf);
+        _stop();
+        cmd_timeout = 0.0f;
+        return false;
+    }
+    return true;
 }
 
-// rotation is rotation speed in deg/s (to the right from above?)
-void _set_rotation(float rotation)
-{
-    cmd_rotation = rotation * (ROTATION_DIST / 360.0); // deg/s -> cm/s
-    _set_motor_speeds();
-}
 
-void _set_motion(float speed, float rotation) 
+void _set_motion(float speed, float rotation, float timeout)
 {
     cmd_speed = speed;
     cmd_rotation = rotation * (ROTATION_DIST / 360.0); // deg/s -> cm/s
-    _set_motor_speeds();
+    cmd_timeout = timeout;
+    if (_check_command_timeout())
+        _set_motor_speeds();
 }
 
 
@@ -253,11 +255,6 @@ void _handle_command(uint32_t time)
   if (n < 1)
     return;
   
-  if (strcmp(name, "heartbeat") == 0) {
-    heartbeat_time = time;
-    return;
-  }
-
   if (strcmp(name, ".") == 0) {
     _stop();
     return;
@@ -268,20 +265,11 @@ void _handle_command(uint32_t time)
     return;
   }
 
-  if (strcmp(name, "t") == 0 && n == 2) {
+  if (strcmp(name, "m") == 0 && n >= 4) {
     // arg1 is translation speed forwards in cm/s
-    _set_speed(arg1);
-    return;
-  }
-
-  if (strcmp(name, "r") == 0 && n == 2) {
-    // arg1 is rotation speed in deg/s
-    _set_rotation(arg1);
-    return;
-  }
-
-  if (strcmp(name, "go") == 0 && n == 3) {
-    _set_motion(arg1, arg2);
+    // arg2 is rotation speed in deg/s
+    // arg3 is time at which the command times out
+    _set_motion(arg1, arg2, arg3);
     return;
   }
 
@@ -450,15 +438,21 @@ void _control_from_uart(void)
             printf("\n");
             updates = 0;
 
+            snprintf(buf, sizeof(buf), "Time %.3f\n", time);
+            usart_tx_string(USART1, buf);
+
             // Distance travelled - in ticks
             snprintf(buf, sizeof(buf), "Revs %.2f %.2f\n", motor_L.encoder.sum / TICKS_PER_REV, motor_R.encoder.sum / TICKS_PER_REV);
             usart_tx_string(USART1, buf);
             
             // Speed in revs/sec - could use cm/sec
-            snprintf(buf, sizeof(buf), "Speed %.3f %.3f %.3f %.3f\n", motor_L.encoder.speed / TICKS_PER_REV, motor_R.encoder.speed / TICKS_PER_REV, motor_L.set_speed_lp / TICKS_PER_REV, motor_R.set_speed_lp / TICKS_PER_REV);
+            snprintf(buf, sizeof(buf), "Speed %.3f %.3f %.3f %.3f\n",
+                motor_L.encoder.speed / TICKS_PER_REV, motor_R.encoder.speed / TICKS_PER_REV,
+                motor_L.set_speed_lp / TICKS_PER_REV, motor_R.set_speed_lp / TICKS_PER_REV);
             usart_tx_string(USART1, buf);
 
-            snprintf(buf, sizeof(buf), "Power %6.3f %6.3f   %6.3f %6.3f\n", motor_L.power, motor_R.power, motor_L.pid.I, motor_R.pid.I);
+            // snprintf(buf, sizeof(buf), "Power %6.3f %6.3f   %6.3f %6.3f\n", motor_L.power, motor_R.power, motor_L.pid.I, motor_R.pid.I);
+            snprintf(buf, sizeof(buf), "Power %6.3f %6.3f\n", motor_L.power, motor_R.power);
             usart_tx_string(USART1, buf);
 
 #if 0
@@ -466,15 +460,9 @@ void _control_from_uart(void)
             usart_tx_string(USART1, buf);
 #endif
         }
-        
-        if (time >= heartbeat_time + HEARTBEAT_TIMEOUT) {
-            heartbeat_time = time + HEARTBEATE_REPORT_INTERVAL;
-            const char *msg = "Heartbeat missing\n";
-            printf(msg);
-            usart_tx_string(USART1, msg);
-            _stop();
-        }
-        
+
+        _check_command_timeout();
+
         if (time >= nextBatteryTime) {
             nextBatteryTime = time + BATTERY_INTERVAL;
             float vbat = battery_voltage();
