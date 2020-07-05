@@ -80,6 +80,10 @@ class RobotStateFeed(object):
         self.battery_ok = True
         self.battery: RobotState.Battery = None
 
+        # STM32 time
+        self.time_time: datetime = None
+        self.time: float = None
+
     # TODO: also report error state - or be able to return status from here...
 
     def update(self, tt, o): # -> Optional[Tuple[t,dt,z,u]]
@@ -102,10 +106,8 @@ class RobotStateFeed(object):
 
             u = GPS.UTM(o.lat, o.lon)
             # print(o.time, o.lat, o.lon, o.alt)
-            deasting = u.easting - GPS.u0.easting
-            dnorthing = u.northing - GPS.u0.northing
-            x = deasting
-            y = dnorthing
+            x = u.easting - GPS.u0.easting
+            y = u.northing - GPS.u0.northing
             # Rotate by 20 degrees to align x,y coordinate system with garden.
             # Also rotates the heading/yaw reference system!
             # Y runs against house, X runs against hill
@@ -129,6 +131,11 @@ class RobotStateFeed(object):
             ud = np.array([[speed], [omega]])
             self.pos_time = tt
             return tt, dt, z, ud, o.hdop
+
+        if isinstance(o, RobotState.Time):
+            self.time_time = tt
+            self.time = o.time
+            return
 
         if isinstance(o, RobotState.Revs):
             # print("REVS", o)
@@ -159,13 +166,11 @@ class RobotStateFeed(object):
 
         if isinstance(o, RobotState.Translate):
             # print("TRANS", o)
-            self.translate = o
             self.speed1 = o.speed
             return
 
         if isinstance(o, RobotState.Rotate):
             # print("ROT", o)
-            self.rotate = o
             self.omega1 = o.omega
             return
 
@@ -205,7 +210,7 @@ async def track(stream, yaw=0, speed=0):
         yield s
 
 
-if __name__ == "__main__":
+def test():
     import asyncio
     logging.basicConfig(
         level=logging.INFO,
@@ -213,5 +218,13 @@ if __name__ == "__main__":
         format='%(asctime)s %(levelname)s %(message)s',
     )
     filename = sys.argv[1]
-    stream = parse(filename)
-    asyncio.run(track(stream, yaw=-0.80*math.pi - math.radians(20)))
+
+    async def dump():
+        async for s in track(parse(filename), yaw=-0.80*math.pi - math.radians(20)):
+            print(s)
+
+    asyncio.run(dump())
+
+
+if __name__ == "__main__":
+    test()
