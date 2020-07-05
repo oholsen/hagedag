@@ -294,6 +294,13 @@ def replay(file, plot):
                 i = 0
 
 
+def replay2(file, plot):
+    i = 0
+    for line in file:
+        print("REPLAY", line)
+        print("REPLAY", play.process_line(line))
+
+
 def mission_control(host, filename):
     from Map import Config
     from Plotting import Plot
@@ -307,7 +314,6 @@ def mission_control(host, filename):
     speed = config.mission.speed or 0.05
     omega = config.mission.omega or 0.2
     cut = config.mission.cut or 20
-    
 
     # controls = FenceBumps(fence, speed, omega)
     # controls = RingControls(fence.exterior.coords, speed, omega)
@@ -318,7 +324,7 @@ def mission_control(host, filename):
     # controls = ScanHLine(-10, -7.5, -1, -4, speed, omega) # slackline - gml gran
     # controls = ScanHLine(-10, -9, -6, -4, speed, omega) # slackline - paere
     
-    # controls = ScanHLine(-8, -5, 3, -1.2, speed, omega) # midten med mest gras
+    # controls = ScanHLine(-8, -5, 3, -1.2, speed, omega) # midten med mest gras++
     # controls = ScanHLine(-8, -3, 3, -1.2, speed, omega) # midten med mest gras
     # controls = ScanHLine(-11, -6, -5, -0.4, speed, omega) # mot epler
     # controls = ScanHLine(-2, -4, 2, -1, speed, omega) # test
@@ -346,6 +352,7 @@ def mission_control(host, filename):
 
     plot.pause()
     plot.show()
+
 
 if __name__ == "__main__":
     import sys, yaml

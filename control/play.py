@@ -13,26 +13,34 @@ import state
 logger = logging.getLogger(__name__)
 
 
+def parse_time(line: str) -> datetime:
+    t = line[:23].replace(",", ".")
+    return datetime.fromisoformat(t)
+
+
 def process(line: str) -> Optional[object]:
+    # date time level module ROBOT/GPS ...
     try:
         line = line.strip()
+        t = parse_time(line)
         cols = line.split()
-        if len(cols) < 4:
+        # print("cols", cols)
+        if len(cols) < 5:
             return
+        cols = cols[4:]
+        cmd = cols[0]
+        if cmd == "GPS" and len(cols) >= 2:
+            return t, GPS.process(cols[1])
 
-        t = line[:23].replace(",", ".")
-        tt = datetime.fromisoformat(t)
+        if cmd == "ROBOT":
+            # TODO: avoid joining
+            msg = " ".join(cols[1:])
+            return t, RobotState.process(msg)
 
-        if len(cols) == 5 and cols[3] == "GPS":
-            msg = cols[4]
-            return tt, GPS.process(msg)
+        return t, None
 
-        if len(cols) > 5 and cols[3] == "ROBOT":
-            msg = " ".join(cols[4:])
-            return tt, RobotState.process(msg)
-
-        return tt, None
     except:
+        logger.exception("Parsing " + line)
         return None, None
 
 
@@ -61,12 +69,12 @@ class RobotStateFeed(object):
         self.speed3 = speed
         self.omega3 = omega
 
-        self.pos_time: datetime  = None
+        self.pos_time: datetime = None
         
         self.revs_time: datetime = None
         self.revs: RobotState.Revs = None
         
-        self.speed_time: datetime = None
+        self.speeds_time: datetime = None
         self.speeds: RobotState.Speed = None        
 
         self.battery_ok = True
