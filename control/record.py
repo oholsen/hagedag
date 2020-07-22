@@ -6,8 +6,8 @@ import time
 from datetime import datetime
 import GPS
 import RobotState
-import play
-import control
+import RobotMessages
+# import control
 from state import State
 from shapely.geometry import JOIN_STYLE
 
@@ -21,8 +21,8 @@ async def controld_reader(websocket, incoming):
             t = datetime.utcnow()
             msg = msg.strip()
             logger.debug("ROBOT %s", msg)
-            await incoming.put((t, RobotState.process(msg)))
-            # incoming.put_nowait((t, RobotState.process(msg)))
+            await incoming.put((t, RobotMessages.process(msg)))
+            # incoming.put_nowait((t, RobotMessages.process(msg)))
     except:
         logger.exception("controld reader")
 
@@ -76,7 +76,7 @@ async def from_controld(host):
                     msg = await websocket.recv()
                     msg = msg.strip()
                     logger.info("ROBOT %s", msg)
-                    yield datetime.utcnow(), RobotState.process(msg)
+                    yield datetime.utcnow(), RobotMessages.process(msg)
         except:
             logger.exception("From controld failed")
         await asyncio.sleep(1)
@@ -144,14 +144,6 @@ async def incoming_consumer(incoming: asyncio.Queue):
         incoming.task_done()
 
 
-async def heartbeat(outgoing):
-    while True:
-        await asyncio.sleep(2)
-        t = datetime.utcnow()
-        m = RobotState.HeartbeatCommand()
-        await outgoing.put((t, m))
-
-
 # also serves to record - without the outgoing producer
 async def test_streamq(host):
     incoming = asyncio.Queue()
@@ -182,7 +174,6 @@ async def record(host):
         logger.error("Record failed", exc_info=1)
 
 
-
 async def incoming_generator(incoming):
     while True:
         t, m = await incoming.get()
@@ -191,25 +182,9 @@ async def incoming_generator(incoming):
         incoming.task_done()
 
 
-async def track(host, yaw=0, speed=0):
-    await play.track(stream(host), yaw, speed)
-
-
-async def track2(host, yaw=0, speed=0):
-    incoming = asyncio.Queue()
-    outgoing = asyncio.Queue()
-    # ti = asyncio.create_task(incoming_consumer(incoming))
-    # to = asyncio.create_task(heartbeat(outgoing))
-    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
-    tg = asyncio.create_task(gps_connection(host, incoming))
-    # await asyncio.gather(tc, tg, ti, to)
-    # incoming -> track -> control -> outgoing
-    async for s in play.track(incoming_generator(incoming), yaw, speed):
-        logger.info("track2 %g %g %g %g", s.x, s.y, s.theta, s.speed)
-
-
 def simulated_control(control, plot):
     from RobotModel import RobotModel
+    # FIXME: configurable initial state
     model = RobotModel(State(-10, -2, 0, 0))
     dt = 1
     t = 0.0
@@ -247,10 +222,9 @@ async def realtime_control(host, control, plot, cut):
     # Keep references to tasks to avoid them being stopped instantly
     tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
     tg = asyncio.create_task(gps_connection(host, incoming))
-    # to = asyncio.create_task(heartbeat(outgoing))
 
     # incoming -> track -> control -> outgoing
-    async for state in play.track(incoming_generator(incoming), 0, 0):
+    async for state in RobotState.track(incoming_generator(incoming), 0, 0):
         t = time.time()
         plot.update(state)
         # continue
@@ -258,21 +232,14 @@ async def realtime_control(host, control, plot, cut):
             break
         speed, omega = control.update(t, state)
         # logger.debug("Update %s -> %r %r", state, speed, omega)
-        if speed is not None:
-            t = datetime.utcnow()
-            m = RobotState.SpeedCommand(speed)
-            await outgoing.put((t, m))
-        if omega is not None:
-            t = datetime.utcnow()
-            m = RobotState.OmegaCommand(omega)
-            await outgoing.put((t, m))
         if speed is not None and omega is not None:
             t = datetime.utcnow()
-            m = RobotState.CutCommand(cut)
+            m = RobotMessages.CutCommand(cut)
             await outgoing.put((t, m))
-            # TODO: timeout on commands
+
+            # FIXME: figure out what the last Time is from the robot, keep it in state?
             t = datetime.utcnow()
-            m = RobotState.HeartbeatCommand()
+            m = RobotMessages.MoveCommand(speed, omega, timeout)
             await outgoing.put((t, m))
 
 

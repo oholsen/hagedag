@@ -1,6 +1,6 @@
 from math import cos, sin
 from state import State
-import RobotState
+import RobotMessages
 
 # slip_left = 0.0
 
@@ -8,7 +8,7 @@ class RobotModel:
     # physical state
 
     def __init__(self, state: State):
-        self.B = RobotState.WHEEL_BASE
+        self.B = RobotMessages.WHEEL_BASE
         self.state = state
         self.omega = 0
 
@@ -31,11 +31,11 @@ class RobotModel:
     def get_state(self) -> State:
         return self.state
 
-    def command(self, cmd: RobotState.RobotCommand):
-        if isinstance(cmd, RobotState.SpeedCommand):
+    def command(self, cmd: RobotMessages.RobotCommand):
+        if isinstance(cmd, RobotMessages.SpeedCommand):
             self.state.speed = cmd.speed
-        elif isinstance(cmd, RobotState.OmegaCommand):
+        elif isinstance(cmd, RobotMessages.OmegaCommand):
             self.state.omega = cmd.omega
-        elif isinstance(cmd, RobotState.StopCommand):
+        elif isinstance(cmd, RobotMessages.StopCommand):
             self.state.speed = 0
             self.state.omega = 0

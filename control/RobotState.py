@@ -1,298 +1,228 @@
+import logging
+import sys
+import RobotState
+import GPS
+from datetime import datetime
 from typing import Optional
-import math
-from abc import ABC
+import numpy as np
+import tracking
+import math, cmath
+import aiofiles
+import state
+
+logger = logging.getLogger(__name__)
 
 
-WHEEL_BASE         = 0.3300 # m
-DIST_PER_WHEEL_REV = 0.3864 # m
-MAX_SPEED          = 0.15 # m/s, probably slightly higher, but to guarantee heading...
-
-"""
-Calibration on office floor:
-119 cm
-3.08 revs (with 36 ticks per rev, R = 6cm)
-38.64 cm / rev
-37.68 = 2*6*3.14
-"""
+def parse_time(line: str) -> datetime:
+    t = line[:23].replace(",", ".")
+    return datetime.fromisoformat(t)
 
 
-def to_float(s: str) -> Optional[float]:
+def process(line: str) -> Optional[object]:
+    # date time level module ROBOT/GPS ...
     try:
-        return float(s)
-    except ValueError:
-        return None
-
-
-def to_int(s: str) -> Optional[int]:
-    try:
-        return int(s)
-    except ValueError:
-        return None
-
-
-class FromRobot(ABC):
-    pass
-
-
-class Time(FromRobot):
-    def __init__(self, segments):
-        self.time = to_float(segments[1])
-
-    def __str__(self):
-        return f"Time({self.time})"
-
-
-class Revs(FromRobot):
-    def __init__(self, segments):
-        self.right = to_float(segments[1]) * DIST_PER_WHEEL_REV
-        self.left = to_float(segments[2]) * DIST_PER_WHEEL_REV
-
-    def __str__(self):
-        return f"Revs({self.left}, {self.right})"
-
-
-class Speed(FromRobot):
-    def __init__(self, segments):
-        self.left = to_float(segments[1]) * DIST_PER_WHEEL_REV
-        self.right = to_float(segments[2]) * DIST_PER_WHEEL_REV
-        self.left_set_lp = to_float(segments[3]) * DIST_PER_WHEEL_REV
-        self.right_set_lp = to_float(segments[4]) * DIST_PER_WHEEL_REV
-
-    def speed(self):
-        return 1.5 * (self.left + self.right)
-
-    def omega(self):
-        return -2 * (self.left - self.right) / WHEEL_BASE
-
-    def __str__(self):
-        return f"Speed({self.left}, {self.right})"
-
-
-class Power(FromRobot):
-    def __init__(self, segments):
-        self.left = to_float(segments[1])
-        self.right = to_float(segments[2])
-
-    def max(self) -> float:
-        return max(abs(self.left), abs(self.right))
-
-
-class Battery(FromRobot):
-    def __init__(self, segments):
-        self.voltage = float(segments[1])
-
-    def __str__(self):
-        return f"Battery({self.voltage})"
-
-
-
-"""
-float cmd_speed = 0.0f;    // forward revs / sec
-float cmd_rotation = 0.0f; // right from above
-
-#define ROTATION_DIST           (M_PI * WHEEL_BASE) // cm
-
-
-cmd_speed from GUI
-
-rotation from GUI
-cmd_rotation = rotation * (ROTATION_DIST / 360.0); // deg/s -> cm/s
-
-
-float speed_L = (cmd_speed + cmd_rotation) * TICKS_PER_CM;
-float speed_R = (cmd_speed - cmd_rotation) * TICKS_PER_CM;
-
-
-Tracking and control:
-omega/theta is positive left from above
-
-speed = cmd_speed # cm/s
-omega = -rotation # deg/s
-"""
-
-
-class ControlAck(FromRobot):
-    """Ack as response from starting processing of control line"""
-    pass
-
-
-class TranslateAck(ControlAck):
-    def __init__(self, segments):
-        # argument is [-20..20]
-        self.speed = to_float(segments[1]) * 0.01  # m/s
-
-    def __str__(self):
-        return f"Translate({self.speed})"
-
-
-class RotateAck(ControlAck):
-    def __init__(self, segments):
-        # argument is [-20..20]
-        self.omega = -1 * math.radians(to_float(segments[1]))
-
-    def __str__(self):
-        return f"Rotate({self.omega})"
-
-
-class HeartbeatAck(ControlAck):
-    def __init__(self, segments):
-        pass
-
-    def __str__(self):
-        return "Heartbeat()"
-
-
-class StopAck(ControlAck):
-    def __init__(self, segments):
-        pass
-
-    def __str__(self):
-        return "Stop()"
-
-
-class ResetAck(ControlAck):
-    def __init__(self, segments):
-        pass
-
-    def __str__(self):
-        return "Reset()"
-
-
-_control_acks = {
-    "t": TranslateAck,
-    "r": RotateAck,
-    ".": StopAck,
-    "!": ResetAck,
-    "heartbeat": HeartbeatAck,
-}
-
-
-def control_ack(segments) -> Optional[ControlAck]:
-    assert segments[0] == "Control"
-    segments = segments[1:]
-    ack = _control_acks.get(segments[0])
-    if ack is not None:
-        return ack(segments)
-    return None
-
-
-class Ack(FromRobot):
-    # Ack <time> <command as interpreted by robot>
-    def __init__(self, time: float, command: FromRobot):
-        self.time = time
-        self.command = command
-
-    def __str__(self):
-        return f"Ack({self.time},{self.command})"
-
-
-class Move(FromRobot):
-    def __init__(self, segments):
-        # speed is [-20..20] # cm/s
-        # omega is [-20..20] # degrees/s
-        self.speed = 1 * int(to_float(segments[1])) * 0.01 # m/s
-        self.omega = -1 * math.radians(to_float(segments[2]))
-        self.timeout = to_float(segments[3])
-
-    def __str__(self):
-        return f"Move({self.speed},{self.omega},{self.timeout})"
-
-
-class Timeout(FromRobot):
-    # Timeout <time> <command as interpreted by robot>
-    def __init__(self, time: float, command: FromRobot):
-        self.time = time
-        self.command = command
-
-    def __str__(self):
-        return f"Timeout({self.time},{self.command})"
-
-
-_commands = {
-    "m": Move,
-}
-
-
-def command(clz, segments) -> FromRobot:
-    time = float(segments[1])
-    segments = segments[2:]
-    cmd = _commands.get(segments[0])
-    if cmd is not None:
-        cmd = cmd(segments)
-        return clz(time, cmd)
-    return None
-
-
-class Ignore(FromRobot):
-    def __init__(self, segments):
-        self.segments = segments
-
-    def __str__(self):
-        return f"Ignore({self.segments})"
-
-
-_sentences = {
-    "Time": Time,
-    "Revs": Revs,
-    "Speed": Speed,
-    "Power": Power,
-    "Battery": Battery,
-    "Control": control_ack,
-    "Ack": lambda segments: command(Ack, segments),
-    "Timeout": lambda segments: command(Timeout, segments),
-}
-
-
-def process(line):
-    line = line.strip()
-    segments = line.split()
-    cmd = segments[0]
-    sentence = _sentences.get(cmd, Ignore)
-    if sentence:
-        return sentence(segments)
-
-
-def revs_delta2(revs1: Revs, revs2: Revs, dt: float):
-    dr = revs2.right - revs1.right
-    dl = revs2.left - revs1.left
-    return revs_delta(dl, dr, dt)
-
-
-def revs_delta(dl: float, dr: float, dt: float):
-    speed = 3 * 0.5 * (dl + dr) * DIST_PER_WHEEL_REV / dt # m/s
-    omega = 2 * 0.5 * (dr - dl) / WHEEL_BASE / dt
-    return speed, omega
-
-
-class RobotCommand(ABC):
-    pass
-
-
-class MoveCommand(RobotCommand):
-    def __init__(self, speed: float, omega: float, timeout: float):
-        self.speed = speed  # m/s
-        self.omega = omega  # rad/s
-        self.timeout = timeout
-
-    def __str__(self):
-        t = 100 * self.speed  # cm/s
-        r = - math.degrees(self.omega)  # degrees/s
-        return f"m {t:.2f} {r:.2f} {self.timeout:.3f}"
-
-
-class StopCommand(RobotCommand):
-    def __str__(self):
-        return "."
-
-
-class ResetCommand(StopCommand):
-    def __str__(self):
-        return "!"
-
-
-class CutCommand(RobotCommand):
-    def __init__(self, speed: float):
-        self.speed = speed
-
-    def __str__(self):
-        return f"CUT {self.speed:.2f}"
+        line = line.strip()
+        t = parse_time(line)
+        cols = line.split()
+        # print("cols", cols)
+        if len(cols) < 5:
+            return
+        cols = cols[4:]
+        cmd = cols[0]
+        if cmd == "GPS" and len(cols) >= 2:
+            return t, GPS.process(cols[1])
+
+        if cmd == "ROBOT":
+            # TODO: avoid joining
+            msg = " ".join(cols[1:])
+            return t, RobotState.process(msg)
+
+        return t, None
+
+    except:
+        logger.exception("Parsing " + line)
+        return None, None
+
+
+async def parse(filename):
+    async with aiofiles.open(filename) as f:
+        async for line in f:
+            yield process(line)
+
+
+class RobotState(object):
+
+    def __init__(self, speed:float=0, omega:float=0):
+        # Input (u) [speed omega]' from Speed, commands, or Revs.
+        # Revs seems to slow down without any good reason (GPS progresses with same speed).
+        # Speed is more noisy but can have aliasing (LP not slow enough).
+        
+        # Commands
+        self.speed1 = speed
+        self.omega1 = omega
+
+        # Speeds
+        self.speed2 = speed
+        self.omega2 = omega
+
+        # Revs
+        self.speed3 = speed
+        self.omega3 = omega
+
+        self.pos_time: datetime = None
+        
+        self.revs_time: datetime = None
+        self.revs: RobotState.Revs = None
+        
+        self.speeds_time: datetime = None
+        self.speeds: RobotState.Speed = None        
+
+        self.battery_ok = True
+        self.battery: RobotState.Battery = None
+
+        self.power_ok = True
+        self.power: RobotState.Power = None
+
+        # STM32 time
+        self.time_time: datetime = None
+        self.time: float = None
+
+    def status_ok(self) -> bool:
+        return self.battery_ok and self.power_ok
+
+    def update(self, tt, o): # -> Optional[Tuple[t,dt,z,u]]
+        # each GPS cycle starts with RMC, Revs are on same cycle - could interpolate and get speed???
+        # yield tracker input state on each RMC
+
+        # logger.debug("Feed update %s %r %s", tt, o, o)
+
+        if tt is None or o is None:
+            logger.error("Invalid input: %s %s", tt, o)
+            return
+
+        if isinstance(o, GPS.RMC):
+            # logger.debug("RMC %s %s %g", o.mode, o.has_rtk(), o.hdop)
+            return
+
+        if isinstance(o, GPS.GGA):
+            # FIXME: use error in estimated position in tracking!!!
+            # if o.hdop > 0.20 and not o.has_rtk(): return
+
+            u = GPS.UTM(o.lat, o.lon)
+            # print(o.time, o.lat, o.lon, o.alt)
+            x = u.easting - GPS.u0.easting
+            y = u.northing - GPS.u0.northing
+            # FIXME: make georef configurable: u0 and rotation
+            # Rotate by 20 degrees to align x,y coordinate system with garden.
+            # Also rotates the heading/yaw reference system!
+            # Y runs against house, X runs against hill
+            p = complex(x, y)
+            p = p * cmath.rect(1, math.radians(-20))
+            x = p.real
+            y = p.imag
+            z = np.array([[x], [y]])
+
+            speed, omega = self.speed1, self.omega1
+            
+            # TODO: use tt or GPS time? Can track dt outside.
+            if self.pos_time is None:
+                dt = None
+            else:
+                dt = (tt - self.pos_time).total_seconds()
+
+            ud = np.array([[speed], [omega]])
+            self.pos_time = tt
+            # feed tracking.track()
+            return tt, dt, z, ud, o.hdop
+
+        if isinstance(o, RobotState.Time):
+            self.time_time = tt
+            self.time = o.time
+            return
+
+        if isinstance(o, RobotState.Revs):
+            # print("REVS", o)
+            # Will be lagging somewhat, up to a second - could extrapolate from speeds when yielding at RMC!?
+            if self.revs_time is not None:
+                dt = (tt - self.revs_time).total_seconds()
+                if dt > 0.1: # avoid divide by zero
+                    self.speed3, self.omega3 = RobotState.revs_delta2(self.revs, o, dt)                    
+                #print("REVS", self.speed3, self.omega3, dt)
+            self.revs = o
+            self.revs_time = tt
+            return
+
+        if isinstance(o, RobotState.Speed):
+            # print("SPEEDS", o)
+            self.speeds_time = tt
+            self.speeds = o
+            self.speed2 = o.speed()
+            self.omega2 = o.omega()
+            #print("SPEEDS", self.speed2, self.omega2)
+            return
+
+        if isinstance(o, RobotState.Stop):
+            # print("STOP")
+            self.speed1 = 0
+            self.omega1 = 0
+            return
+
+        if isinstance(o, RobotState.Translate):
+            # print("TRANS", o)
+            self.speed1 = o.speed
+            return
+
+        if isinstance(o, RobotState.Rotate):
+            # print("ROT", o)
+            self.omega1 = o.omega
+            return
+
+        if isinstance(o, RobotState.Battery):
+            logger.debug("BATTERY %s", o)
+            self.battery = o
+            # TODO: configurable threshold - eg global config "dep injection"
+            if self.battery.voltage < 10:
+                self.battery_ok = False
+            return
+
+        if isinstance(o, RobotState.Power):
+            self.power = o
+            # TODO: configurable threshold
+            if self.power.max() > 0.8:
+                self.power_ok = False
+            return
+
+
+# TODO: move out of here to fail-safe in the control loop, making sure the robot instantly stops on failure
+async def track_input(stream):
+    p = RobotState()
+    async for t, o in stream:
+        # logger.debug("track input {%s} {%s}", t, o)
+        if t is None or o is None:
+            continue
+
+        # returns (t, dt, z, u) or None
+        m = p.update(t, o)
+        # logger.debug("track input %s %r -> %r", t, o, m)
+
+        if not p.battery_ok:
+            logger.debug("Battery low: %s", p.battery)
+            continue
+
+        if not p.power_ok:
+            logger.debug("Power high: %s", p.power)
+            continue
+
+        if m is not None:
+            # logger.debug("track input %s %r -> %r", t, o, m)
+            # feed tracking.track()
+            yield m
+
+
+async def track(stream, yaw=0, speed=0):
+    # async for x in track_input(stream): print("track", repr(x))
+    # return await tracking.track(track_input(stream), yaw=yaw, speed=speed)
+    async for s in tracking.track(track_input(stream), yaw=yaw, speed=speed):
+        s = state.from_array(s)
+        logger.debug("STATE %g %g %g %g", s.x, s.y, s.theta, s.speed)
+        yield s
