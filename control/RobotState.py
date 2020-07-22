@@ -72,8 +72,9 @@ class Power(FromRobot):
     def __init__(self, segments):
         self.left = to_float(segments[1])
         self.right = to_float(segments[2])
-        self.left_I = to_float(segments[3])
-        self.right_I = to_float(segments[4])
+
+    def max(self) -> float:
+        return max(abs(self.left), abs(self.right))
 
 
 class Battery(FromRobot):

@@ -80,11 +80,15 @@ class RobotStateFeed(object):
         self.battery_ok = True
         self.battery: RobotState.Battery = None
 
+        self.power_ok = True
+        self.power: RobotState.Power = None
+
         # STM32 time
         self.time_time: datetime = None
         self.time: float = None
 
-    # TODO: also report error state - or be able to return status from here...
+    def status_ok(self) -> bool:
+        return self.battery_ok and self.power_ok
 
     def update(self, tt, o): # -> Optional[Tuple[t,dt,z,u]]
         # each GPS cycle starts with RMC, Revs are on same cycle - could interpolate and get speed???
@@ -108,6 +112,7 @@ class RobotStateFeed(object):
             # print(o.time, o.lat, o.lon, o.alt)
             x = u.easting - GPS.u0.easting
             y = u.northing - GPS.u0.northing
+            # FIXME: make georef configurable: u0 and rotation
             # Rotate by 20 degrees to align x,y coordinate system with garden.
             # Also rotates the heading/yaw reference system!
             # Y runs against house, X runs against hill
@@ -124,9 +129,6 @@ class RobotStateFeed(object):
                 dt = None
             else:
                 dt = (tt - self.pos_time).total_seconds()
-                #dx, dy = u.diff(GPS.UTM(self.rmc.lat, self.rmc.lon))
-                #speed_gps = math.hypot(dx, dy) / dt
-                #print("SPEEDGPS", dl/dt)
 
             ud = np.array([[speed], [omega]])
             self.pos_time = tt
@@ -182,7 +184,15 @@ class RobotStateFeed(object):
                 self.battery_ok = False
             return
 
+        if isinstance(o, RobotState.Power):
+            self.power = o
+            # TODO: configurable threshold
+            if self.power.max() > 0.8:
+                self.power_ok = False
+            return
 
+
+# TODO: move out of here to fail-safe in the control loop, making sure the robot instantly stops on failure
 async def track_input(stream):
     p = RobotStateFeed()
     async for t, o in stream:
@@ -193,9 +203,15 @@ async def track_input(stream):
         # returns (t, dt, z, u) or None
         m = p.update(t, o)
         # logger.debug("track input %s %r -> %r", t, o, m)
+
         if not p.battery_ok:
-            logger.debug("Battery not ok: %r %s", p.battery_ok, p.battery)
+            logger.debug("Battery low: %s", p.battery)
             continue
+
+        if not p.power_ok:
+            logger.debug("Power high: %s", p.power)
+            continue
+
         if m is not None:
             # logger.debug("track input %s %r -> %r", t, o, m)
             yield m

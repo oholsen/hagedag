@@ -14,3 +14,12 @@ def test_move():
     assert c.speed == move.speed
     assert c.omega == pytest.approx(move.omega, 1e-3)
     assert c.timeout == move.timeout
+
+
+def test_power():
+    line = "Power 0.8 0.9"
+    x = RobotState.process(line)
+    assert isinstance(x, RobotState.Power)
+    assert x.left == pytest.approx(0.8, 1e-3)
+    assert x.right == pytest.approx(0.9, 1e-3)
+
