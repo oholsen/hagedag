@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 import logging
 import time
 import random
+import RobotMessages
 import RobotState
 from state import State
 from PID import PID
@@ -290,7 +291,7 @@ def start_arc(radius, speed, direction):
     # speed may be too high for outer motor in tight turn
     # outer motor speed is speed + omega * wheelbase / 2
     # max_speed_of_motor = speed + speed * wheelbase / radius / 2
-    speed = min(speed, RobotState.MAX_SPEED / (1 + 0.5 * RobotState.WHEEL_BASE / radius))
+    speed = min(speed, RobotMessages.MAX_SPEED / (1 + 0.5 * RobotMessages.WHEEL_BASE / radius))
     omega = speed / radius
     if not direction:
         omega = -omega
