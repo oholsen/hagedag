@@ -380,7 +380,7 @@ if __name__ == "__main__":
     import sys, yaml
     from os import path
     import logging.config
-    with open("record.yaml") as f:
+    with open("logging.yaml") as f:
         logging.config.dictConfig(yaml.full_load(f))
     loop = asyncio.get_event_loop()
     loop.set_exception_handler(handle_exception)
