@@ -216,6 +216,62 @@ def handle_exception(loop, context):
     asyncio.create_task(shutdown(loop))
 
 
+async def track(stream, yaw=0, speed=0):
+    import state
+    import tracking
+
+    p = RobotState.RobotState()
+    tracker = tracking.ExtendedKalmanFilterTracker()
+
+    # For every message from GPS/robot or on timeout
+    # run control loop and provide output to robot - OR - on fail safe, stop robot
+    # (possibly with the option to resume the control loop, saving the last known good position)
+
+    async for t, o in stream:
+        # logger.debug("track input {%s} {%s}", t, o)
+        if t is None or o is None:
+            continue
+
+        # returns (t, dt, z, u) or None
+        m = p.update(t, o)
+        # logger.debug("track input %s %r -> %r", t, o, m)
+
+        if not p.battery_ok:
+            logger.error("Battery low: %s", p.battery)
+            return
+
+        if not p.power_ok:
+            logger.error("Power high: %s", p.power)
+            return
+
+        if m is not None:
+            # logger.debug("track input %s %r -> %r", t, o, m)
+            # feed tracking.track()
+            _, dt, z, ud, hdop = m
+            # print("TRACK STREAM", dt, z, ud)
+            s = tracker.update2(z, ud, hdop, dt)
+            s = state.from_array(s)
+            logger.debug("STATE %g %g %g %g", s.x, s.y, s.theta, s.speed)
+            yield s
+
+
+"""
+ROS like topics for event processing!?
+topic.publish()
+topic.subscribe()
+
+
+control():
+  gps -> tracker.update() at 2Hz or whatever...
+  move -> tracker.set()
+  both via robot state
+  
+  tracker update -> control.update()
+  fail safe -> control.stop/save (pause)
+  gps timeout -> control.stop/save/pause (connection delay)  
+"""
+
+
 async def realtime_control(host, control, plot, cut):    
     incoming = asyncio.Queue()
     outgoing = asyncio.Queue()
@@ -224,10 +280,9 @@ async def realtime_control(host, control, plot, cut):
     tg = asyncio.create_task(gps_connection(host, incoming))
 
     # incoming -> track -> control -> outgoing
-    async for state in RobotState.track(incoming_generator(incoming), 0, 0):
+    async for state in track(incoming_generator(incoming), 0, 0):
         t = time.time()
         plot.update(state)
-        # continue
         if control.end(t, state):
             break
         speed, omega = control.update(t, state)
@@ -265,7 +320,7 @@ def replay2(file, plot):
     i = 0
     for line in file:
         print("REPLAY", line)
-        print("REPLAY", play.process_line(line))
+        print("REPLAY", RobotState.process_line(line))
 
 
 def mission_control(host, filename):
@@ -282,9 +337,9 @@ def mission_control(host, filename):
     omega = config.mission.omega or 0.2
     cut = config.mission.cut or 20
 
-    # controls = FenceBumps(fence, speed, omega)
     # controls = RingControls(fence.exterior.coords, speed, omega)
     aoi = aoi.buffer(-0.1, join_style=JOIN_STYLE.mitre)
+    # controls = FenceBumps(aoi, speed, omega)
     controls = FenceShrink(config.fence, aoi, speed, omega)
     # controls = ScanHLine(-10, -4.5, 13, -1.5, speed, omega) # midten - lang
     # controls = ScanHLine(-10.5, -1.6, 17, -0.9, speed, omega) # roser

@@ -1,11 +1,9 @@
 import logging
-import sys
 import RobotState
 import GPS
 from datetime import datetime
 from typing import Optional
 import numpy as np
-import tracking
 import math, cmath
 import aiofiles
 import state
@@ -124,7 +122,7 @@ class RobotState(object):
 
             speed, omega = self.speed1, self.omega1
             
-            # TODO: use tt or GPS time? Can track dt outside.
+            # TODO: use GPS time to discover network delay - need some magic around midnight
             if self.pos_time is None:
                 dt = None
             else:
@@ -192,37 +190,3 @@ class RobotState(object):
                 self.power_ok = False
             return
 
-
-# TODO: move out of here to fail-safe in the control loop, making sure the robot instantly stops on failure
-async def track_input(stream):
-    p = RobotState()
-    async for t, o in stream:
-        # logger.debug("track input {%s} {%s}", t, o)
-        if t is None or o is None:
-            continue
-
-        # returns (t, dt, z, u) or None
-        m = p.update(t, o)
-        # logger.debug("track input %s %r -> %r", t, o, m)
-
-        if not p.battery_ok:
-            logger.debug("Battery low: %s", p.battery)
-            continue
-
-        if not p.power_ok:
-            logger.debug("Power high: %s", p.power)
-            continue
-
-        if m is not None:
-            # logger.debug("track input %s %r -> %r", t, o, m)
-            # feed tracking.track()
-            yield m
-
-
-async def track(stream, yaw=0, speed=0):
-    # async for x in track_input(stream): print("track", repr(x))
-    # return await tracking.track(track_input(stream), yaw=yaw, speed=speed)
-    async for s in tracking.track(track_input(stream), yaw=yaw, speed=speed):
-        s = state.from_array(s)
-        logger.debug("STATE %g %g %g %g", s.x, s.y, s.theta, s.speed)
-        yield s

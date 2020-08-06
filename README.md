@@ -1,13 +1,49 @@
 # hagedag
 DIY lawn mower robot
 
+## Testing
+
+Run unit tests:
+
+    poetry run pytest -s
+
+Run simulation:
+
+    poetry run python .\record.py
+
+(Replay log file, should add fail safe detection ++):
+
+    poetry run python .\record.py .\data\burned-motor.log
 
 
 ## TODO
 
-* Max speed on motors: Too high speed+omega cannot do turn radius
+* motor burned (one wheel was tangled in grass):
+  * wifi connection delayed - commands and feedback
+  * figure out why robot estimate wrongly turned and why it did not recover when moving "right"
+  * fix: move control to robot, detect connection delays, ignore delayed information, timestamp from STM32, use timestamp from GPS
+
+* high load on motor detection - possibly integrate and average
+  * cut in STM or in control? Control, as will get to know what is going on?
+  * STM will stop robot if communication errors, safe to cut in control.
+  * different max for instantaneous and average load?
+  * Simply stop when above threshold (instantaneous)
+
+* robot stuck detection: anomaly on prediction and GPS
+  * measure distance travelled over last 5 say on GPS and compare to integrated speed
+
+* wifi delay detection
+    * shorter timeout (1s/2s)
+    * embed timeout in command
+    * alert in GUI
+
+* stop cutter outside fence?
+* cutter stuck detection
+* revs sensor on cutter
+
+
 * slow down near fence
-* odometer only when no GPS fix -> higher uncertainty
+* keep estimating position with odometer only when no GPS fix -> higher uncertainty
 
 * Fence
     * increase area behind garage
@@ -26,8 +62,6 @@ Usability:
 
 * Tidy up app:
    * remove unused code
-   * refactor simulator to use tracker? If want to simulate HDOP issues...
-
 
 * move app to robot
 
@@ -35,24 +69,15 @@ Usability:
 
 * slow down near fence, speed up in the middle (may make crash prediction below unnecessary - if reducing heartbeat timeout in robot)
 * keep going for large HDOP if far from fence
-* use GPS hdop in tracking
+* use GPS hdop in tracking, figure out why HDOP is 0.5 when RTK
 * looser cut-off on no RTK - either adjust error in GPS tracking (check out HDOP in RMC)
  - or - accept no GPS for a while - at least if heading is good and is not going to crash.
  estimate time to impact from last good RTK position?
 BUT: also quicker than 5s heartbeat timeout, i.e. direct STOP command if about to crash and loose RTK 
 * avoid going in circles on drifting GPS: HDOP -> tracker could solve that
-* how to use hdop in line following - same applies: ok if near fence
-
-
-* fence following control: make sure don't hit obstacles (obstacles are holes in the grass): grass shape has fence and holes
-* area filling - scan lines or just fence following with restricting fence by path travelled ("cells filled")
-  - handle multiple areas to fill - only use areas with area above threshold, e.g. 0.5 m2
-  - handle travel/path between areas, path planning, not crashing into sandkasse, gran, hjørner, ...
+* area filling - scan lines
 * if HDOP high: alternative targets or wait for ok HDOP
 * fence bump control: reverse out from fence
-* revs sensor on cutter
-* stuck detection: both on cutter and robot
-* stop cutter outside fence?
 
 * automatic charging
 * docking garage

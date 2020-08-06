@@ -11,7 +11,7 @@ import numpy as np
 
 #  Simulation parameter
 INPUT_NOISE = np.diag([0.1, np.deg2rad(30.0)]) ** 2
-GPS_NOISE = np.diag([0.03, 0.03]) ** 2
+GPS_NOISE = np.diag([0.1, 0.1]) ** 2
 
 
 # Covariance for EKF simulation
@@ -230,11 +230,19 @@ class ExtendedKalmanFilterTracker:
 
     def update(self, z, u, R, dt: float):
         # u: input, z: observation (not used here)
+        if self.state is None:
+            self.state = np.array([[z[0][0]], [z[1][0]], [0], [0]])
         self.state, self.P = ekf_estimation(self.state, self.P, z, u, R, dt)
         return self.state
 
-    def plot_covariance(self):
-        plot_covariance_ellipse(self.state, self.P)
+    def update2(self, z, u, hdop: float, dt: float):
+        # u: input, z: observation (not used here)
+        # each component is 0.707 * hdop (hdop is radius)
+        if self.state is None:
+            self.state = np.array([[z[0][0]], [z[1][0]], [0], [0]])
+        R = np.diag([0.7 * hdop, 0.7 * hdop]) ** 2
+        self.state, self.P = ekf_estimation(self.state, self.P, z, u, R, dt)
+        return self.state
 
 
 async def track(stream, yaw=0, speed=0):
@@ -252,7 +260,7 @@ async def track(stream, yaw=0, speed=0):
         hz.plot(".g")
         # hdr.plot_flatten("-k")
         hekf.plot_flatten("-r")
-        ekf.plot_covariance()
+        plot_covariance_ellipse(ekf.state, ekf.P)
 
         # State Vector [x y yaw v]'
         s = ekf.get_state().flatten()
