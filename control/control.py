@@ -286,12 +286,20 @@ class TimeControl2(Control):
         return t >= self.end_time
 
 
-def start_arc(radius, speed, direction):
-    # speed may be too high for outer motor in tight turn
+def start_arc(radius, speed, omega, direction):
+    # speed and omega may be too high for outer motor in tight turn
+    # if outer motor speed exceeds max, then have to reduce speed (and omega)
+
     # outer motor speed is speed + omega * wheelbase / 2
     # max_speed_of_motor = speed + speed * wheelbase / radius / 2
-    speed = min(speed, RobotState.MAX_SPEED / (1 + 0.5 * RobotState.WHEEL_BASE / radius))
-    omega = speed / radius
+    # speed = min(speed, RobotState.MAX_SPEED / (1 + 0.5 * RobotState.WHEEL_BASE / radius))
+    _omega = speed / radius
+    if _omega < omega:
+        omega = _omega
+    else:
+        speed = omega * radius
+    max_speed = speed + omega * RobotState.WHEEL_BASE / 2
+    assert max_speed < RobotState.MAX_SPEED
     if not direction:
         omega = -omega
     return speed, omega
@@ -341,10 +349,9 @@ def LineTest(xl, xr, y0):
         right = not right
 
 
-def ScanHLine(x0, y0, x1, y1, speed, omega):
+def ScanHLine(x0, y0, x1, y1, speed, omega, dy=0.05):
     assert x1 > x0
     assert y1 > y0
-    dy = 0.14
     y = y0
     right = True
     end_x = {True: x1, False: x0}
@@ -357,8 +364,7 @@ def ScanHLine(x0, y0, x1, y1, speed, omega):
         if y > y1: 
             y = y0
         else:
-            # speed may be too high for outer motor in tight turn
-            s, o = start_arc(dy/2, speed, right)
+            s, o = start_arc(dy/2, speed, omega, right)
             yield ArcControl(s, -o, end_theta[right])
 
 
