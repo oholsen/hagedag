@@ -18,18 +18,10 @@
 // tick rate -> power
 // 12k ticks per wheel rev
 #define PID_Kp      1e-4
-
-#if 1
 #define PID_Ti      0.2
 #define PID_Td      1e-3
 #define PID_alpha   0.1
-#define PID_Imax    1.0
-#else
-#define PID_Ti      0
-#define PID_Td      0
-#define PID_alpha   0
-#define PID_Imax    0
-#endif
+#define PID_Imax    0.6
 
 
 #define HEARTBEAT_TIMEOUT               10
@@ -53,18 +45,14 @@ IB on A,4
 #define MOTOR_PWM_FREQ          100e3
 #define MOTOR_PWM_PERIOD        ((uint32_t) (SYSTEM_CLOCK / MOTOR_PWM_FREQ))
 
-#define TICKS_PER_REV           (270.0 * 36) // gear ratio * hall ticks/rev
-#define WHEEL_DIAM              12.5 // cm
-#define WHEEL_BASE              33.0 // cm
-#define DIST_PER_REV            (M_PI * WHEEL_DIAM) // cm
-#define DIST_TO_REV             (1 / DIST_PER_REV)
-#define ROTATION_DIST           (M_PI * WHEEL_BASE) // cm
-#define TICKS_PER_CM            (TICKS_PER_REV / DIST_PER_REV)
-#define MAX_TICK_SPEED          6800
+#define MAX_TICK_SPEED          5800
+#define MAX_POWER_LP            0.5
 
 
 static char buf[128];
-// static int status;
+static int status;
+#define STATUS_MAX_POWER    1
+
 
 
 float set_speed_alpha = 5e-2;
@@ -99,6 +87,8 @@ float cmd_speed = 0.0f;    // forward revs / sec
 float cmd_rotation = 0.0f; // right from above
 uint32_t heartbeat_time = 0;
 
+
+static float power_A, power_B;
 
 Pin_t vbat_ain_pin = {GPIOA, 5};
 Pin_t vbat_gnd_pin = {GPIOC, 15}; // Not used
@@ -173,14 +163,13 @@ void _test_vbat(void)
         printf("%4d\n", v);
         delay_ms(1000);
     }
-  
-  
 }
 
 
 void _reset(void) 
 {
-    // status = 0;
+    status = 0;
+    power_A = power_B = 0;
     motor_control_init(&motor_A, 0.0);
     motor_control_init(&motor_B, 0.0);
 }
@@ -192,10 +181,10 @@ void _stop(void)
     motor_control_set_speed(&motor_R, 0, 1);  
 }
 
-// command speeds are in cm/s
+// command speeds are in ticks/s
 void _set_motor_speeds(void) {
-    float speed_L = (cmd_speed + cmd_rotation) * TICKS_PER_CM;
-    float speed_R = (cmd_speed - cmd_rotation) * TICKS_PER_CM;
+    float speed_L = cmd_speed + cmd_rotation;
+    float speed_R = cmd_speed - cmd_rotation;
     // Guard against overspeed
     /*
     if (fabs(speed_L) > MAX_TICK_SPEED || fabs(speed_R) > MAX_TICK_SPEED) {
@@ -215,17 +204,17 @@ void _set_speed(float speed)
     _set_motor_speeds();
 }
 
-// rotation is rotation speed in deg/s (to the right from above?)
+// rotation is ticks/s speed difference (to the right from above?)
 void _set_rotation(float rotation)
 {
-    cmd_rotation = rotation * (ROTATION_DIST / 360.0); // deg/s -> cm/s
+    cmd_rotation = rotation;
     _set_motor_speeds();
 }
 
 void _set_motion(float speed, float rotation) 
 {
     cmd_speed = speed;
-    cmd_rotation = rotation * (ROTATION_DIST / 360.0); // deg/s -> cm/s
+    cmd_rotation = rotation;
     _set_motor_speeds();
 }
 
@@ -270,17 +259,20 @@ void _handle_command(uint32_t time)
 
   if (strcmp(name, "t") == 0 && n == 2) {
     // arg1 is translation speed forwards in cm/s
+    heartbeat_time = time;
     _set_speed(arg1);
     return;
   }
 
   if (strcmp(name, "r") == 0 && n == 2) {
     // arg1 is rotation speed in deg/s
+    heartbeat_time = time;
     _set_rotation(arg1);
     return;
   }
 
   if (strcmp(name, "go") == 0 && n == 3) {
+    heartbeat_time = time;
     _set_motion(arg1, arg2);
     return;
   }
@@ -307,9 +299,12 @@ void _handle_command(uint32_t time)
 
 void _test_led(void) 
 {  
+  printf("Test LED...\n");
   for (;;) {
+    printf("ON\n");
     led_on();
     delay_ms(500);
+    printf("OFF\n");
     led_off();
     delay_ms(500);      
   }
@@ -393,7 +388,7 @@ void _control_from_uart(void)
     uint32_t nextUpdateTicks = systick_add(systick_read(), updateInterval);
     uint32_t updates = 0;
     
-    uint32_t time = 0;
+    uint32_t time = 0; // seconds since boot
     uint32_t time_ticks = systick_read();    
     
     while (1)
@@ -404,15 +399,24 @@ void _control_from_uart(void)
         uint32_t ticks = systick_read();
         if (systick_expired2(ticks, nextUpdateTicks)) {
             nextUpdateTicks = systick_add(ticks, updateInterval);
-            float dts = updater_update(&updater);
-            if ((motor_L.pid.saturated != 0) || (motor_R.pid.saturated != 0)) {
-              // set point only, stop motors in motor_control_update()
-              // TODO: add some timeout, eg 10 seconds, for overload...
-              // _stop();
+            if ((status & STATUS_MAX_POWER) == 0) {
+              if (fabs(power_A) < MAX_POWER_LP && fabs(power_B) < MAX_POWER_LP) {
+                float dts = updater_update(&updater);
+                motor_control_update(&motor_L, dts);
+                motor_control_update(&motor_R, dts);
+                // approx 8s before overload triggers
+                power_A += 0.005 * (motor_A.pid.I - power_A);
+                power_B += 0.005 * (motor_B.pid.I - power_B);
+                updates++;
+              }
+              else {
+                // Must reset motors to get going again
+                printf("Power overload - stopping!\n");
+                status |= STATUS_MAX_POWER;
+                motor_set_power(&motor_A.motor, 0);
+                motor_set_power(&motor_B.motor, 0);
+              }
             }
-            motor_control_update(&motor_L, dts);
-            motor_control_update(&motor_R, dts);
-            updates++;
         }
         
         ticks = systick_read();
@@ -439,7 +443,7 @@ void _control_from_uart(void)
 
             MotorControl_t *motor = &motor_A;
             float speed = motor->encoder.speed; // No need to low-pass filter
-            printf(" %6.0f %6.3f", speed, speed / TICKS_PER_REV);
+            printf(" %6.0f", speed);
             printf(" | %.3f | %.3f %.3f %.3f", motor->power, motor->pid.P, motor->pid.I, motor->pid.D);
 #if 1
             // must be synched with PWM?? Or add LP filter on input...
@@ -451,23 +455,22 @@ void _control_from_uart(void)
             updates = 0;
 
             // Distance travelled - in ticks
-            snprintf(buf, sizeof(buf), "Revs %.2f %.2f\n", motor_L.encoder.sum / TICKS_PER_REV, motor_R.encoder.sum / TICKS_PER_REV);
+            snprintf(buf, sizeof(buf), "Ticks %d %d\n", motor_L.encoder.sum, motor_R.encoder.sum);
             usart_tx_string(USART1, buf);
             
             // Speed in revs/sec - could use cm/sec
-            snprintf(buf, sizeof(buf), "Speed %.3f %.3f %.3f %.3f\n", motor_L.encoder.speed / TICKS_PER_REV, motor_R.encoder.speed / TICKS_PER_REV, motor_L.set_speed_lp / TICKS_PER_REV, motor_R.set_speed_lp / TICKS_PER_REV);
+            snprintf(buf, sizeof(buf), "Speed %.1f %.1f %.1f %.1f\n", motor_L.encoder.speed, motor_R.encoder.speed, motor_L.set_speed_lp, motor_R.set_speed_lp);
             usart_tx_string(USART1, buf);
 
-            snprintf(buf, sizeof(buf), "Power %6.3f %6.3f   %6.3f %6.3f\n", motor_L.power, motor_R.power, motor_L.pid.I, motor_R.pid.I);
+            snprintf(buf, sizeof(buf), "Power %.3f %.3f %.3f %.3f\n", motor_L.power, motor_R.power, motor_L.pid.I, motor_R.pid.I);
             usart_tx_string(USART1, buf);
 
-#if 0
-            snprintf(buf, sizeof(buf), "Status %d %d %d\n", status, motor_L.pid.saturated, motor_R.pid.saturated);
+            snprintf(buf, sizeof(buf), "Status %d\n", status);
             usart_tx_string(USART1, buf);
-#endif
         }
         
         if (time >= heartbeat_time + HEARTBEAT_TIMEOUT) {
+            printf("Heartbeat missing %d %d\n", time, heartbeat_time);
             heartbeat_time = time + HEARTBEATE_REPORT_INTERVAL;
             const char *msg = "Heartbeat missing\n";
             printf(msg);
