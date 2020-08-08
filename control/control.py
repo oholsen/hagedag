@@ -351,7 +351,7 @@ def ScanHLine(x0, y0, x1, y1, speed, omega):
     end_theta = {True: 0, False: pi}
     while True:
         # TODO: dummy first control, with end() just to get state?
-        yield HLineControl(y, right, end_x[right])
+        yield HLineControl(y, right, end_x[right], speed, omega)
         y += dy
         right = not right
         if y > y1: 
