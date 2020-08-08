@@ -63,10 +63,7 @@ class RobotStateFeed(object):
         self.omega3 = omega
 
         self.pos_time: datetime  = None
-        
-        self.revs_time: datetime = None
-        self.revs: RobotState.Revs = None
-        
+                
         self.speed_time: datetime = None
         self.speeds: RobotState.Speed = None        
 
@@ -122,18 +119,6 @@ class RobotStateFeed(object):
             ud = np.array([[speed], [omega]])
             self.pos_time = tt
             return tt, dt, z, ud, o.hdop
-
-        if isinstance(o, RobotState.Revs):
-            # print("REVS", o)
-            # Will be lagging somewhat, up to a second - could extrapolate from speeds when yielding at RMC!?
-            if self.revs_time is not None:
-                dt = (tt - self.revs_time).total_seconds()
-                if dt > 0.1: # avoid divide by zero
-                    self.speed3, self.omega3 = RobotState.revs_delta2(self.revs, o, dt)                    
-                #print("REVS", self.speed3, self.omega3, dt)
-            self.revs = o
-            self.revs_time = tt
-            return
 
         if isinstance(o, RobotState.Speed):
             # print("SPEEDS", o)

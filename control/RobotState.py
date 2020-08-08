@@ -3,17 +3,17 @@ import json
 import math
 from abc import ABC
 
-
 WHEEL_BASE         = 0.3300 # m
-DIST_PER_WHEEL_REV = 0.3864 # m
-MAX_SPEED          = 0.15 # m/s, probably slightly higher, but to guarantee heading...
+# max tick speed is about 5800
+MAX_TICK_SPEED     = 5500
+DIST_PER_TICK      = 1.145 / 20550 # m
+MAX_SPEED          = MAX_TICK_SPEED * DIST_PER_TICK # m/s
+# MAX_SPEED          = 0.15 # m/s, probably slightly higher, but to guarantee heading...
 
 """
 Calibration on office floor:
-119 cm
-3.08 revs (with 36 ticks per rev, R = 6cm)
-38.64 cm / rev
-37.68 = 2*6*3.14
+20550 ticks
+114.5 cm
 """
 
 
@@ -32,20 +32,20 @@ def to_int(s: str) -> Optional[int]:
 class FromRobot(ABC):
     pass
 
-class Revs(FromRobot):
+class Ticks(FromRobot):
     def __init__(self, segments):
-        self.right = to_float(segments[1]) * DIST_PER_WHEEL_REV
-        self.left = to_float(segments[2]) * DIST_PER_WHEEL_REV
+        self.right = to_float(segments[1]) * DIST_PER_TICK
+        self.left = to_float(segments[2]) * DIST_PER_TICK
 
     def __str__(self):
         return f"Revs({self.left}, {self.right})"
 
 class Speed(FromRobot):
     def __init__(self, segments):
-        self.left = to_float(segments[1]) * DIST_PER_WHEEL_REV
-        self.right = to_float(segments[2]) * DIST_PER_WHEEL_REV
-        self.left_set_lp = to_float(segments[3]) * DIST_PER_WHEEL_REV
-        self.right_set_lp = to_float(segments[4]) * DIST_PER_WHEEL_REV
+        self.left = to_float(segments[1]) * DIST_PER_TICK
+        self.right = to_float(segments[2]) * DIST_PER_TICK
+        self.left_set_lp = to_float(segments[3]) * DIST_PER_TICK
+        self.right_set_lp = to_float(segments[4]) * DIST_PER_TICK
 
     def speed(self):
         return 1.5 * (self.left + self.right)
@@ -73,50 +73,33 @@ class Battery(FromRobot):
         return f"Battery({self.voltage})"
 
 
+class Status(FromRobot):
+    def __init__(self, segments):
+        self.status = int(segments[1])
 
-"""
-float cmd_speed = 0.0f;    // forward revs / sec
-float cmd_rotation = 0.0f; // right from above
+    def __str__(self):
+        return f"Status({self.status})"
 
-#define ROTATION_DIST           (M_PI * WHEEL_BASE) // cm
-
-
-cmd_speed from GUI
-
-rotation from GUI
-cmd_rotation = rotation * (ROTATION_DIST / 360.0); // deg/s -> cm/s
-
-
-float speed_L = (cmd_speed + cmd_rotation) * TICKS_PER_CM;
-float speed_R = (cmd_speed - cmd_rotation) * TICKS_PER_CM;
-
-
-Tracking and control:
-omega/theta is positive left from above
-
-speed = cmd_speed # cm/s
-omega = -rotation # deg/s
-"""
+    def overload(self) -> bool:
+        return self.status & 1 != 0
 
 
 class Translate(FromRobot):
-    def __init__(self, speed: float):
-        # argument is [-20..20]
-        self.arg = speed
-        self.speed = 1 * int(speed) * 0.01 # m/s
+    def __init__(self, tick_speed: float):
+        self.speed = tick_speed * DIST_PER_TICK
 
     def __str__(self):
         return f"Translate({self.speed})"
 
-class Rotate(FromRobot):
-    def __init__(self, omega: float):
-        # argument is [-20..20]
 
-        self.arg = omega
-        self.omega = -1 * math.radians(omega)
+class Rotate(FromRobot):
+    def __init__(self, tick_speed: float):
+        # tick_speed is added and subtracted on motors
+        self.omega = tick_speed * DIST_PER_TICK / (WHEEL_BASE / 2)
 
     def __str__(self):
         return f"Rotate({self.omega})"
+
 
 class Stop(FromRobot):
     def __init__(self):
@@ -155,11 +138,12 @@ class Ignore(FromRobot):
 
 
 _sentences = {
-    "Revs": Revs,
+    "Ticks": Ticks,
     "Speed": Speed,
     "Power": Power,
     "Control": Control,
     "Battery": Battery,
+    "Status": Status,
     # "heartbeat": Heartbeat,
 }
 
@@ -173,33 +157,23 @@ def process(line):
         return sentence(segments)
 
 
-def revs_delta2(revs1: Revs, revs2: Revs, dt: float):
-    dr = revs2.right - revs1.right
-    dl = revs2.left - revs1.left
-    return revs_delta(dl, dr, dt)
-
-
-def revs_delta(dl: float, dr: float, dt: float):
-    speed = 3 * 0.5 * (dl + dr) * DIST_PER_WHEEL_REV / dt # m/s
-    omega = 2 * 0.5 * (dr - dl) / WHEEL_BASE / dt
-    return speed, omega
-
-
 class RobotCommand(ABC):
     pass
+
 
 class SpeedCommand(RobotCommand):
     def __init__(self, speed: float):
         self.speed = speed  # m/s
     def __str__(self):
-        t = 100 * self.speed  # cm/s
+        t = int(self.speed / DIST_PER_TICK) # ticks/s
         return f"t {t:.2f}"
 
 class OmegaCommand(RobotCommand):
     def __init__(self, omega: float):
-        self.omega = omega  # omega is rad/s in opposite direction to 
+        self.omega = omega  # rad/s anti-clockwise from above
     def __str__(self):
-        r = - math.degrees(self.omega)  # degrees/s
+        # tick_speed is added and subtracted on motors
+        r = self.omega * (WHEEL_BASE / 2) /DIST_PER_TICK # ticks/s
         return f"r {r:.2f}"
 
 class StopCommand(RobotCommand):
