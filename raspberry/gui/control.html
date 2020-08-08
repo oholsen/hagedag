@@ -39,10 +39,10 @@
       max: 5000,
       step: 100,
       slide: function(event, ui) { 
-        $("#turnText").val(ui.value );
+        $("#turnText").val(-ui.value );
       },
       change: function() { 
-        var value = $(this).slider("value");
+        var value = -$(this).slider("value");
         $("#turnText").val(value);         
         // console.log("turn change", value);
 

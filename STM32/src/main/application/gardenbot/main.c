@@ -182,17 +182,10 @@ void _stop(void)
 }
 
 // command speeds are in ticks/s
+// rotation is anti-clockwise from above
 void _set_motor_speeds(void) {
-    float speed_L = cmd_speed + cmd_rotation;
-    float speed_R = cmd_speed - cmd_rotation;
-    // Guard against overspeed
-    /*
-    if (fabs(speed_L) > MAX_TICK_SPEED || fabs(speed_R) > MAX_TICK_SPEED) {
-      status = 1; // over speed
-      _stop();
-      return;
-    }
-    */
+    float speed_L = cmd_speed - cmd_rotation;
+    float speed_R = cmd_speed + cmd_rotation;
     motor_control_set_speed(&motor_L, speed_L, set_speed_alpha);
     motor_control_set_speed(&motor_R, speed_R, set_speed_alpha);
 } 
@@ -204,7 +197,6 @@ void _set_speed(float speed)
     _set_motor_speeds();
 }
 
-// rotation is ticks/s speed difference (to the right from above?)
 void _set_rotation(float rotation)
 {
     cmd_rotation = rotation;
