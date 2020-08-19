@@ -1,6 +1,7 @@
 from typing import Optional
 from functools import reduce
-import json
+from datetime import time, timezone
+import math
 import utm
 
 # All NMEA sentences described here:
@@ -33,11 +34,20 @@ def parse_lat(dms: str, a: str) -> float:
     return lat
 
 
-def parse_time(hms: str) -> float:
+def _parse_time(hms: str) -> float:
     h = int(hms[0:2])
     m = int(hms[2:4])
     s = float(hms[4:])
     return ((h * 60 + m) * 60) + s
+
+
+def parse_time(hms: str) -> time:
+    h = int(hms[0:2])
+    m = int(hms[2:4])
+    ss = float(hms[4:])
+    s = int(math.floor(ss))
+    us = int((ss - s) * 1e6)
+    return time(h, m, s, us)  # , timezone.utc)
 
 
 def parse_lon(dms: str, a: str) -> float:

@@ -1,14 +1,26 @@
 from math import cos, sin
 from state import State
-import RobotState
 
 # slip_left = 0.0
+
+WHEEL_BASE         = 0.3300 # m
+MAX_TICK_SPEED     = 5500 # max tick speed is about 5800
+DIST_PER_TICK      = 1.145 / 20550 # m
+MAX_SPEED          = MAX_TICK_SPEED * DIST_PER_TICK # m/s
+# MAX_SPEED          = 0.15 # m/s, probably slightly higher, but to guarantee heading...
+
+"""
+Calibration on office floor:
+20550 ticks
+114.5 cm
+"""
+
 
 class RobotModel:
     # physical state
 
     def __init__(self, state: State):
-        self.B = RobotState.WHEEL_BASE
+        # self.B = WHEEL_BASE
         self.state = state
         self.omega = 0
 
@@ -30,12 +42,3 @@ class RobotModel:
 
     def get_state(self) -> State:
         return self.state
-
-    def command(self, cmd: RobotState.RobotCommand):
-        if isinstance(cmd, RobotState.SpeedCommand):
-            self.state.speed = cmd.speed
-        elif isinstance(cmd, RobotState.OmegaCommand):
-            self.state.omega = cmd.omega
-        elif isinstance(cmd, RobotState.StopCommand):
-            self.state.speed = 0
-            self.state.omega = 0

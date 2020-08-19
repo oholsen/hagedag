@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 import logging
 import time
 import random
+import RobotMessages
 import RobotState
 from state import State
 from PID import PID
@@ -484,7 +485,7 @@ def LineControlTest():
     yield LineControl((5,0), (5,5), speed, omega)
 
 
-# TODO: remove, move to record.py
+# TODO: remove, move to main.py
 async def simulate_point():
     from RobotModel import RobotModel
     model = RobotModel(State(1, 1, 0, 0))
