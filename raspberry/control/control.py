@@ -14,6 +14,18 @@ pi.set_mode(15, pigpio.ALT5)  # RXD
 
 from cutter import cutter
 
+
+
+def reset_timeout():
+    signal.alarm(5)  # seconds
+
+
+def timeout(writer):
+    logger.info('Cutter timeout')
+    cutter.stop()
+    # stop(writer)
+
+
 async def open():
 
     # https://tinkering.xyz/async-serial/
@@ -39,13 +51,6 @@ def stop(writer):
     send(writer, '.')
 
 
-def timeout(writer):
-    # also heartbeat timeout inside STM
-    logger.info('Heartbeat timeout')
-    cutter.stop()
-    stop(writer)
-
-
 def handle(writer, data):
     # Dispatch message to RPI or STM
     assert data == data.strip()
@@ -60,6 +65,7 @@ def handle(writer, data):
             cols = data.split()
             power = float(cols[1])
             cutter.power(power)
+            reset_timeout()
         except:
             cutter.off()
             logger.error("Failed to handle CUT: %r", data, exc_info=1)
@@ -67,11 +73,7 @@ def handle(writer, data):
 
     # Forward commands below to STM but intercept for local processing
 
-    # Watchdog on the cutter, if loose touch then stop.
-    if data.startswith('heartbeat'):
-        # reset timer, pass on to STM
-        signal.alarm(5)  # seconds
-    elif data == '!':
+    if data == '!':
         cutter.off()
     elif data == '.':
         pass
