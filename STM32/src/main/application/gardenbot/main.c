@@ -440,7 +440,7 @@ void _control_from_uart(void)
             usart_tx_string(USART1, buf);
 
             // snprintf(buf, sizeof(buf), "Power %6.3f %6.3f   %6.3f %6.3f\n", motor_L.power, motor_R.power, motor_L.pid.I, motor_R.pid.I);
-            snprintf(buf, sizeof(buf), "Power %6.3f %6.3f\n", motor_L.power, motor_R.power);
+            snprintf(buf, sizeof(buf), "Power %.3f %.3f\n", motor_L.power, motor_R.power);
             usart_tx_string(USART1, buf);
 
             snprintf(buf, sizeof(buf), "Status %d\n", status);
