@@ -7,7 +7,7 @@ import logging
 import time
 import random
 import RobotMessages
-import RobotState
+import RobotModel
 from state import State
 from PID import PID
 from Plotting import Plot
@@ -293,14 +293,14 @@ def start_arc(radius, speed, omega, direction):
 
     # outer motor speed is speed + omega * wheelbase / 2
     # max_speed_of_motor = speed + speed * wheelbase / radius / 2
-    # speed = min(speed, RobotState.MAX_SPEED / (1 + 0.5 * RobotState.WHEEL_BASE / radius))
+    # speed = min(speed, RobotModel.MAX_SPEED / (1 + 0.5 * RobotModel.WHEEL_BASE / radius))
     _omega = speed / radius
     if _omega < omega:
         omega = _omega
     else:
         speed = omega * radius
-    max_speed = speed + omega * RobotState.WHEEL_BASE / 2
-    assert max_speed < RobotState.MAX_SPEED
+    max_speed = speed + omega * RobotModel.WHEEL_BASE / 2
+    assert max_speed < RobotModel.MAX_SPEED
     if not direction:
         omega = -omega
     return speed, omega
@@ -350,7 +350,7 @@ def LineTest(xl, xr, y0):
         right = not right
 
 
-def ScanHLine(x0, y0, x1, y1, speed, omega, dy=0.05):
+def ScanHLine(x0, y0, x1, y1, speed, omega, dy=RobotModel.WHEEL_BASE/4):
     assert x1 > x0
     assert y1 > y0
     y = y0

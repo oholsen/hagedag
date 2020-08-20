@@ -1,13 +1,11 @@
 import websockets
 import asyncio
-# import aiostream
 import logging
 import time
 from datetime import datetime
 import GPS
 import RobotState
 import RobotMessages
-# import control
 from state import State
 from shapely.geometry import JOIN_STYLE
 
@@ -23,6 +21,8 @@ async def controld_reader(websocket, incoming):
             logger.debug("ROBOT %s", msg)
             await incoming.put((t, RobotMessages.process(msg)))
             # incoming.put_nowait((t, RobotMessages.process(msg)))
+    except KeyboardInterrupt:
+        raise
     except:
         logger.exception("controld reader")
 
@@ -39,6 +39,8 @@ async def controld_writer(websocket, outgoing):
             logger.debug("Sending controld: %s", m)
             await websocket.send(m + "\n")
             outgoing.task_done()
+    except KeyboardInterrupt:
+        raise
     except:
         logger.exception("controld writer")
 
@@ -58,7 +60,9 @@ async def controld_connection(host, incoming, outgoing):
                 )
                 logger.info("Robot read/write failed, restarting...")
                 for task in pending:
-                    task.cancel()                
+                    task.cancel()
+        except KeyboardInterrupt:
+            raise
         except:
             logger.exception("Controld connection failed")
         await asyncio.sleep(1)
@@ -77,6 +81,8 @@ async def from_controld(host):
                     msg = msg.strip()
                     logger.info("ROBOT %s", msg)
                     yield datetime.utcnow(), RobotMessages.process(msg)
+        except KeyboardInterrupt:
+            raise
         except:
             logger.exception("From controld failed")
         await asyncio.sleep(1)
@@ -144,21 +150,11 @@ async def incoming_consumer(incoming: asyncio.Queue):
         incoming.task_done()
 
 
-# also serves to record - without the outgoing producer
-async def test_streamq(host):
-    incoming = asyncio.Queue()
-    outgoing = asyncio.Queue()
-    ti = asyncio.create_task(incoming_consumer(incoming))
-    to = asyncio.create_task(outgoing_producer(outgoing))
-    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
-    tg = asyncio.create_task(gps_connection(host, incoming))
-    await asyncio.gather(tc, tg, ti, to)
-
-
 # could take stream of controld commands as input!?
 # creat a task in from_controld that consumes the stream
 # but can we consume from different tasks???
 async def stream(host):
+    import aiostream
     async with aiostream.stream.merge(from_gps(host), from_controld(host)).stream() as streamer:
         async for m in streamer:
             yield m
@@ -168,7 +164,7 @@ async def record(host):
     logger.info("Connecting to host %s", host)
     try:
         # aiostream.stream.merge(from_gps(host), from_robot(host)) | aiostream.pipe.print()
-        async for m in stream(host):
+        async for _m in stream(host):
             pass # print(m)
     except:
         logger.error("Record failed", exc_info=1)
@@ -216,11 +212,10 @@ def handle_exception(loop, context):
     asyncio.create_task(shutdown(loop))
 
 
-async def track(stream, yaw=0, speed=0):
+async def track(p: RobotState.RobotState, stream, yaw=0, speed=0):
     import state
     import tracking
 
-    p = RobotState.RobotState()
     tracker = tracking.ExtendedKalmanFilterTracker()
 
     # For every message from GPS/robot or on timeout
@@ -248,7 +243,7 @@ async def track(stream, yaw=0, speed=0):
             # logger.debug("track input %s %r -> %r", t, o, m)
             # feed tracking.track()
             _, dt, z, ud, hdop = m
-            # print("TRACK STREAM", dt, z, ud)
+            # logger.debug("TRACK STREAM %r %r %r", dt, z, ud)
             s = tracker.update2(z, ud, hdop, dt)
             s = state.from_array(s)
             logger.debug("STATE %g %g %g %g", s.x, s.y, s.theta, s.speed)
@@ -276,25 +271,33 @@ async def realtime_control(host, control, plot, cut):
     incoming = asyncio.Queue()
     outgoing = asyncio.Queue()
     # Keep references to tasks to avoid them being stopped instantly
-    tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
-    tg = asyncio.create_task(gps_connection(host, incoming))
+    _tc = asyncio.create_task(controld_connection(host, incoming, outgoing))
+    _tg = asyncio.create_task(gps_connection(host, incoming))
 
     # incoming -> track -> control -> outgoing
-    async for state in track(incoming_generator(incoming), 0, 0):
+    p = RobotState.RobotState()
+    async for state in track(p, incoming_generator(incoming), 0, 0):
+
+        if not p.status_ok(datetime.utcnow()):
+            logger.warning("Status")
+            continue
+
         t = time.time()
         plot.update(state)
         if control.end(t, state):
             break
         speed, omega = control.update(t, state)
-        # logger.debug("Update %s -> %r %r", state, speed, omega)
+        logger.debug("Control update %r %s -> %r %r", p.time, state, speed, omega)
         if speed is not None and omega is not None:
+            if p.time is None:
+                continue
             t = datetime.utcnow()
+
+            # FIXME: timeout on CUT command too...
             m = RobotMessages.CutCommand(cut)
             await outgoing.put((t, m))
 
-            # FIXME: figure out what the last Time is from the robot, keep it in state?
-            t = datetime.utcnow()
-            m = RobotMessages.MoveCommand(speed, omega, timeout)
+            m = RobotMessages.MoveCommand(speed, omega, p.time + 2.0)
             await outgoing.put((t, m))
 
 
@@ -317,10 +320,10 @@ def replay(file, plot):
 
 
 def replay2(file, plot):
-    i = 0
+    # i = 0
     for line in file:
         print("REPLAY", line)
-        print("REPLAY", RobotState.process_line(line))
+        print("REPLAY", RobotState.process(line))
 
 
 def mission_control(host, filename):

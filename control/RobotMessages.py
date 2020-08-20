@@ -100,6 +100,19 @@ class ResetAck(ControlAck):
         return "Reset()"
 
 
+class Status(FromRobot):
+    STATUS_MAX_POWER = 1
+
+    def __init__(self, segments):
+        self.status = int(segments[1])
+
+    def max_power(self) -> bool:
+        return self.status & self.STATUS_MAX_POWER != 0
+
+    def __str__(self):
+        return f"Status({self.status})"
+
+
 class Ack(FromRobot):
     # Ack <time> <command as interpreted by robot>
     def __init__(self, time: float, command: FromRobot):
@@ -171,6 +184,7 @@ _sentences = {
     "Speed": Speed,
     "Power": Power,
     "Battery": Battery,
+    "Status": Status,
     "Control": control,
     "Ack": lambda segments: ack(Ack, segments),
     "Timeout": lambda segments: ack(Timeout, segments),

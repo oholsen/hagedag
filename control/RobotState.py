@@ -85,9 +85,18 @@ class RobotState(object):
         self.time_time: datetime = None
         self.time: float = None
 
+        self.status_time: datetime = None
+        self.status: RobotMessages.Status = None
 
-    def status_ok(self) -> bool:
-        return self.battery_ok and self.power_ok
+
+    def status_ok(self, t: datetime) -> bool:
+        logger.debug("Status %r %r %r", self.status_time, self.status, t)
+        if self.status is None:
+            return False
+        if abs((t - self.status_time).total_seconds()) > 3:
+            return False
+        return self.battery_ok and not self.status.max_power()
+
 
     def update(self, tt, o): # -> Optional[Tuple[t,dt,z,u]]
         # each GPS cycle starts with RMC, Revs are on same cycle - could interpolate and get speed???
@@ -125,9 +134,11 @@ class RobotState(object):
                 dt = None
             else:
                 dt = (tt - self.pos_time).total_seconds()
+            self.pos_time = tt
+            if dt is None:
+                return
 
             ud = np.array([[speed], [omega]])
-            self.pos_time = tt
             # feed tracking.track()
             return tt, dt, z, ud, o.hdop
 
@@ -151,9 +162,10 @@ class RobotState(object):
             self.omega1 = 0
             return
 
-        if isinstance(o, RobotMessages.Move):
+        if isinstance(o, RobotMessages.MoveAck):
             # print("TRANS", o)
             self.speed1 = o.speed
+            self.omega1 = o.omega
             return
 
 
@@ -168,6 +180,13 @@ class RobotState(object):
         if isinstance(o, RobotMessages.Power):
             self.power = o
             # TODO: configurable threshold
-            if self.power.max() > 0.8:
-                self.power_ok = False
+            # TODO: continue (reset power flag - after a while? but could be stuck, need GUI...)
+            # if self.power.max() > 0.8:
+            #     self.power_ok = False
             return
+
+        if isinstance(o, RobotMessages.Status):
+            self.status = o
+            self.status_time = tt
+            # self.power_ok = self.power_ok and not self.status.max_power()
+            # self.power_ok = not self.status.max_power()
