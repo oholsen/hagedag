@@ -176,10 +176,16 @@
         
         var heartbeatTimer;
 
+        function heartbeat() {
+          let value = $("#cutspeed").val().trim();
+          cut(value);
+          move();
+        }
+
         s.onopen = function (e) {
           console.log("Websocket open");
           $("#websocket").text("Open");
-          heartbeatTimer = setInterval(() => $("#heartbeat").prop("checked") && move(), 1000);
+          heartbeatTimer = setInterval(() => $("#heartbeat").prop("checked") && heartbeat(), 1000);
         };
         
         s.onclose = function (e) {
@@ -194,7 +200,7 @@
           console.log("Websocket message:", message);
           debug(message);
 
-          let cols = message.split(" ");
+          let cols = message.replace(/ +/g, " ").split(" ");
           if (cols.length == 0)
             return;
           let cmd = cols[0];
@@ -208,6 +214,18 @@
           if (cmd == "Battery") {
             let vbat = cols[1];
             $('#battery').text(vbat);
+            return;
+          }
+
+          if (cmd == "Status") {
+            $('#status').text(cols[1]);
+            return;
+          }
+
+          if (cmd == "Power") {
+            // console.log("Power", cols)
+            let power = Math.max(Math.abs(parseFloat(cols[1])), Math.abs(parseFloat(cols[2])));
+            $('#power').text(power);
             return;
           }
 
@@ -271,7 +289,7 @@
     </div>
 
     <!-- STATUS -->
-    <table id="status" style="margin-top: 10px;">
+    <table id="statusgrid" style="margin-top: 10px;">
       <tr><td>Battery</td><td id="battery"></td><td>V</td></tr>
       <tr><td>Battery</td><td id="v_bat"></td><td>V</td></tr>
       <tr><td>Wheels</td><td id="i_wheels"></td><td>A</td></tr>
@@ -279,6 +297,8 @@
       <tr><td>5V</td><td id="i_5V"></td><td>A</td></tr>
       <tr><td>Websocket</td><td id="websocket">Closed</td><td></td></tr>
       <tr><td>Time</td><td id="time"></td><td></td></tr>
+      <tr><td>Status</td><td id="status"></td><td></td></tr>
+      <tr><td>Power</td><td id="power"></td><td></td></tr>
     </table>
 
   </div>
