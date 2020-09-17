@@ -65,7 +65,8 @@ class BrushlessCutterBidirectional:
                 self.cutter.amplitude(power)
 
 
-cutter = BrushlessCutterUnidirectional()
+# cutter = BrushlessCutterUnidirectional()
+cutter = BrushedCutter()
 
 
 if __name__ == '__main__':
