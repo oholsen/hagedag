@@ -44,7 +44,8 @@ IB on A,4
 #define MOTOR_PWM_PERIOD        ((uint32_t) (SYSTEM_CLOCK / MOTOR_PWM_FREQ))
 
 #define MAX_TICK_SPEED          5800
-#define MAX_POWER_LP            0.5
+#define MOTOR_POWER_MAX         0.9
+#define MOTOR_POWER_ALPHA       0.001 // approx 20s before overload triggers
 
 
 // static uint32_t time; // seconds since boot
@@ -276,13 +277,12 @@ void _control_from_uart(void)
             time += 0.025;
             nextUpdateTicks = systick_add(ticks, updateInterval);
             if ((status & STATUS_MAX_POWER) == 0) {
-              if (fabs(power_A) < MAX_POWER_LP && fabs(power_B) < MAX_POWER_LP) {
+              if (fabs(power_A) < MOTOR_POWER_MAX && fabs(power_B) < MOTOR_POWER_MAX) {
                 float dts = updater_update(&updater);
                 motor_control_update(&motor_L, dts);
                 motor_control_update(&motor_R, dts);
-                // approx 8s before overload triggers
-                power_A += 0.005 * (motor_A.pid.I - power_A);
-                power_B += 0.005 * (motor_B.pid.I - power_B);
+                power_A += MOTOR_POWER_ALPHA * (motor_A.pid.I - power_A);
+                power_B += MOTOR_POWER_ALPHA * (motor_B.pid.I - power_B);
                 updates++;
               }
               else {
